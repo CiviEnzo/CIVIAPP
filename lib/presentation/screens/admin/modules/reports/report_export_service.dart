@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:you_book/domain/entities/appointment.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/presentation/screens/admin/modules/reports/report_aggregator.dart';
 import 'package:you_book/presentation/screens/admin/modules/reports/report_models.dart';
@@ -220,6 +221,7 @@ class ReportExportService {
     final fileName = '${dataset.fileStem}_youbook_$timestamp.csv';
     final rows = switch (dataset) {
       ReportExportDataset.sales => _buildSalesRows(snapshot),
+      ReportExportDataset.expenses => _buildExpenseRows(snapshot),
       ReportExportDataset.appointments => _buildAppointmentRows(snapshot),
       ReportExportDataset.clients => _buildClientRows(snapshot),
       ReportExportDataset.staff => _buildStaffRows(snapshot),
@@ -278,6 +280,22 @@ class ReportExportService {
         _deltaLabel(
           current: snapshot.current.newClients.toDouble(),
           previous: snapshot.previous.newClients.toDouble(),
+        ),
+      ],
+      [
+        'Uscite periodo',
+        currency.format(snapshot.current.totalExpenses),
+        _deltaLabel(
+          current: snapshot.current.totalExpenses,
+          previous: snapshot.previous.totalExpenses,
+        ),
+      ],
+      [
+        'Netto',
+        currency.format(snapshot.current.netProfit),
+        _deltaLabel(
+          current: snapshot.current.netProfit,
+          previous: snapshot.previous.netProfit,
         ),
       ],
       [
@@ -449,6 +467,54 @@ class ReportExportService {
         sale.paymentStatus.name,
         sale.source ?? '',
         sale.items.map((item) => item.description).join(' | '),
+      ]);
+    }
+    return rows;
+  }
+
+  List<List<String>> _buildExpenseRows(ReportsSnapshot snapshot) {
+    final currency = NumberFormat.currency(
+      locale: 'it_IT',
+      symbol: '€',
+      decimalDigits: 2,
+    );
+    final dateFormat = DateFormat('dd/MM/yyyy');
+    final rows = <List<String>>[
+      [
+        'Competenza',
+        'Scadenza',
+        'Voce',
+        'Titolo',
+        'Fornitore',
+        'Totale',
+        'Pagato',
+        'Residuo',
+        'Stato',
+        'Ricorrente',
+        'Pagamenti',
+      ],
+    ];
+    for (final expense in snapshot.filteredExpenses) {
+      final category =
+          snapshot.expenseCategoryLookup[expense.categoryId]?.name ??
+          'Senza voce';
+      rows.add([
+        dateFormat.format(expense.competenceDate),
+        dateFormat.format(expense.dueDate),
+        category,
+        expense.title,
+        expense.supplierName ?? '',
+        currency.format(expense.totalAmount),
+        currency.format(expense.paidAmount),
+        currency.format(expense.outstandingAmount),
+        expense.resolvedStatus.label,
+        expense.isRecurring ? 'si' : 'no',
+        expense.payments
+            .map(
+              (payment) =>
+                  '${dateFormat.format(payment.date)} ${currency.format(payment.amount)} ${payment.paymentMethod.label}',
+            )
+            .join(' | '),
       ]);
     }
     return rows;

@@ -12,9 +12,11 @@ import 'package:you_book/domain/entities/payment_ticket.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/staff_absence_request.dart';
+import 'package:you_book/presentation/common/app_feedback_dialog.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/client_app_movements_module.dart';
+import 'package:you_book/presentation/screens/admin/modules/expenses_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/inventory_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/messages_module.dart';
 import 'package:you_book/presentation/screens/admin/modules/overview_module.dart';
@@ -103,7 +105,7 @@ _adminNavigationSectionConfigs =
         section: AdminNavigationSection.core,
         label: 'OPERATIVO',
         expandable: false,
-        defaultVisibleModuleIds: <String>['appointments', 'sales'],
+        defaultVisibleModuleIds: <String>['appointments', 'sales', 'expenses'],
       ),
       AdminNavigationSection.sales: AdminNavigationSectionConfig(
         section: AdminNavigationSection.sales,
@@ -203,6 +205,13 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       icon: FontAwesomeIcons.cartShopping,
       section: AdminNavigationSection.core,
       builder: (context, ref, salonId) => SalesModule(salonId: salonId),
+    ),
+    AdminModuleDefinition(
+      id: 'expenses',
+      title: 'Uscite',
+      icon: FontAwesomeIcons.fileInvoiceDollar,
+      section: AdminNavigationSection.core,
+      builder: (context, ref, salonId) => ExpensesModule(salonId: salonId),
     ),
     AdminModuleDefinition(
       id: 'services',
@@ -1099,6 +1108,40 @@ class _AdminAccountDrawer extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 20),
+        _AdminDrawerSectionLabel(label: 'Supporto'),
+        const SizedBox(height: 8),
+        _AdminDrawerSurface(
+          child: Column(
+            children: [
+              _AdminDrawerTile(
+                icon: Icons.star_rate_rounded,
+                title: 'Valuta l\'app',
+                subtitle: 'Apri la pagina store ufficiale di You Book',
+                onTap: () => unawaited(_rateApp(context, ref)),
+              ),
+              Divider(
+                height: 1,
+                indent: 16,
+                endIndent: 16,
+                color: scheme.outlineVariant.withValues(alpha: 0.7),
+              ),
+              _AdminDrawerTile(
+                icon: Icons.feedback_rounded,
+                title: 'Invia feedback app',
+                subtitle: 'Segnala problemi o suggerimenti sul gestionale',
+                onTap:
+                    () => unawaited(
+                      showAppFeedbackDialog(
+                        context,
+                        ref,
+                        source: 'admin_account_drawer',
+                      ),
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
         _AdminDrawerSectionLabel(label: 'Sessione'),
         const SizedBox(height: 8),
         _AdminDrawerSurface(
@@ -1138,6 +1181,18 @@ class _AdminAccountDrawer extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _rateApp(BuildContext context, WidgetRef ref) async {
+    final launched = await ref
+        .read(appRatingServiceProvider)
+        .openStoreListing(source: 'admin_account_drawer');
+    if (!context.mounted || launched) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      const SnackBar(content: Text('Impossibile aprire lo store.')),
     );
   }
 

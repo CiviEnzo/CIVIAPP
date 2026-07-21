@@ -451,6 +451,29 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
                 accentColor: const Color(0xFF15803D),
               ),
               _HeroMetricCard(
+                title: 'Uscite periodo',
+                value: currency.format(snapshot.current.totalExpenses),
+                icon: Icons.payments_outlined,
+                deltaLabel: _formatDelta(
+                  current: snapshot.current.totalExpenses,
+                  previous: snapshot.previous.totalExpenses,
+                ),
+                accentColor: const Color(0xFFB3261E),
+              ),
+              _HeroMetricCard(
+                title: 'Netto',
+                value: currency.format(snapshot.current.netProfit),
+                icon: Icons.balance_rounded,
+                deltaLabel: _formatDelta(
+                  current: snapshot.current.netProfit,
+                  previous: snapshot.previous.netProfit,
+                ),
+                accentColor:
+                    snapshot.current.netProfit >= 0
+                        ? const Color(0xFF15803D)
+                        : const Color(0xFFB3261E),
+              ),
+              _HeroMetricCard(
                 title: 'Nuovi clienti',
                 value: '${snapshot.current.newClients}',
                 icon: Icons.person_add_alt_1_rounded,
@@ -697,6 +720,114 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
                       _TopServicesTable(
                         entries: snapshot.topServices,
                         currency: currency,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _AnalyticsSection(
+                  key: _sectionKeys[ReportAnalyticsSection.expenses],
+                  title: 'Uscite',
+                  description:
+                      'Costi per competenza, pagamenti registrati e netto operativo.',
+                  child: Column(
+                    children: [
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          _MiniInsightCard(
+                            title: 'Uscite',
+                            value: currency.format(
+                              snapshot.current.totalExpenses,
+                            ),
+                            subtitle: _formatDelta(
+                              current: snapshot.current.totalExpenses,
+                              previous: snapshot.previous.totalExpenses,
+                            ),
+                          ),
+                          _MiniInsightCard(
+                            title: 'Da pagare',
+                            value: currency.format(
+                              snapshot.current.unpaidExpenses,
+                            ),
+                            subtitle:
+                                '${snapshot.current.overdueExpensesCount} scadute',
+                          ),
+                          _MiniInsightCard(
+                            title: 'Netto',
+                            value: currency.format(snapshot.current.netProfit),
+                            subtitle:
+                                'Margine ${_formatPercent(snapshot.current.netMargin)}',
+                          ),
+                          _MiniInsightCard(
+                            title: 'Cash flow',
+                            value: currency.format(
+                              snapshot.current.netCashFlow,
+                            ),
+                            subtitle:
+                                'Uscite pagate ${currency.format(snapshot.current.cashOut)}',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final expensesChart = _TrendPanel(
+                            title: 'Trend uscite',
+                            subtitle:
+                                'Per data competenza, ${_granularityLabel(snapshot.trendGranularity)}',
+                            points: snapshot.expenseTrend,
+                            dateFormatter: trendFormatter,
+                            valueLabelBuilder: currency.format,
+                            tooltipBuilder: currency.format,
+                            emptyMessage:
+                                'Nessuna uscita nel periodo selezionato',
+                          );
+                          final netChart = _TrendPanel(
+                            title: 'Trend netto',
+                            subtitle: 'Fatturato meno uscite',
+                            points: snapshot.netTrend,
+                            dateFormatter: trendFormatter,
+                            valueLabelBuilder: currency.format,
+                            tooltipBuilder: currency.format,
+                            emptyMessage:
+                                'Nessun dato economico nel periodo selezionato',
+                          );
+                          final categories = _SimpleValueTableCard(
+                            title: 'Uscite per voce',
+                            emptyMessage: 'Nessuna voce disponibile',
+                            rows: snapshot.expensesByCategory
+                                .map(
+                                  (entry) => _ValueTableRow(
+                                    label: entry.label,
+                                    value: currency.format(entry.amount),
+                                  ),
+                                )
+                                .toList(growable: false),
+                          );
+                          if (constraints.maxWidth < 980) {
+                            return Column(
+                              children: [
+                                expensesChart,
+                                const SizedBox(height: 16),
+                                netChart,
+                                const SizedBox(height: 16),
+                                categories,
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 3, child: expensesChart),
+                              const SizedBox(width: 16),
+                              Expanded(flex: 3, child: netChart),
+                              const SizedBox(width: 16),
+                              Expanded(flex: 2, child: categories),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -982,6 +1113,7 @@ class _ReportsModuleState extends ConsumerState<ReportsModule> {
     final theme = Theme.of(context);
     final datasetCounts = <ReportExportDataset, int>{
       ReportExportDataset.sales: snapshot.filteredSales.length,
+      ReportExportDataset.expenses: snapshot.filteredExpenses.length,
       ReportExportDataset.appointments: snapshot.filteredAppointments.length,
       ReportExportDataset.clients: snapshot.filteredClients.length,
       ReportExportDataset.staff: snapshot.staffPerformance.length,

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/presentation/common/app_feedback_dialog.dart';
 import 'package:you_book/presentation/common/app_version_badge.dart';
 import 'package:you_book/presentation/screens/client/client_theme.dart';
 
@@ -652,6 +653,40 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                               ),
                               const SizedBox(height: 16),
                               _SettingsActionTile(
+                                icon: Icons.star_rate_rounded,
+                                color: theme.colorScheme.tertiary,
+                                title: 'Valuta l\'app',
+                                subtitle:
+                                    'Apri la pagina store ufficiale di You Book',
+                                onTap: () => _rateApp(themedContext),
+                              ),
+                              const SizedBox(height: 16),
+                              _SettingsActionTile(
+                                icon: Icons.feedback_rounded,
+                                color: theme.colorScheme.secondary,
+                                title: 'Invia feedback app',
+                                subtitle:
+                                    'Segnala un problema o proponi un miglioramento',
+                                onTap:
+                                    () => showAppFeedbackDialog(
+                                      themedContext,
+                                      ref,
+                                      source: 'client_settings',
+                                    ),
+                              ),
+                              const SizedBox(height: 16),
+                              _SettingsActionTile(
+                                icon: Icons.tips_and_updates_rounded,
+                                color: theme.colorScheme.primary,
+                                title: 'Rivedi walkthrough',
+                                subtitle:
+                                    'Mostra di nuovo la guida rapida dell\'app clienti',
+                                onTap:
+                                    () =>
+                                        _replayClientWalkthrough(themedContext),
+                              ),
+                              const SizedBox(height: 16),
+                              _SettingsActionTile(
                                 icon: Icons.logout_rounded,
                                 color: theme.colorScheme.primary,
                                 title: 'Scollegati',
@@ -742,6 +777,29 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _rateApp(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final launched = await ref
+        .read(appRatingServiceProvider)
+        .openStoreListing(source: 'client_settings');
+    if (!mounted || launched) {
+      return;
+    }
+    messenger.showAppSnackBar(
+      const SnackBar(content: Text('Impossibile aprire lo store.')),
+    );
+  }
+
+  void _replayClientWalkthrough(BuildContext context) {
+    ref
+        .read(clientDashboardIntentProvider.notifier)
+        .state = const ClientDashboardIntent(
+      tabIndex: 0,
+      payload: {'type': 'client_walkthrough', 'source': 'client_settings'},
+    );
+    unawaited(Navigator.of(context).maybePop());
   }
 
   Future<void> _sendPasswordReset(BuildContext context, String email) async {

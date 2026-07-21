@@ -1,6 +1,7 @@
+import 'dart:async';
+
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/user_role.dart';
-import 'package:you_book/presentation/common/app_notice.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -157,6 +158,19 @@ class CiviApp extends ConsumerWidget {
     ref.watch(appBootstrapProvider);
     final router = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
+
+    ref.listen<SessionState>(sessionControllerProvider, (previous, next) {
+      unawaited(
+        ref
+            .read(appTelemetryServiceProvider)
+            .setUserContext(
+              uid: next.uid,
+              role: next.user?.role?.name,
+              selectedSalonId: next.salonId,
+              entityId: next.userId,
+            ),
+      );
+    });
 
     ref.listen<AsyncValue<NotificationTap>>(notificationTapStreamProvider, (
       previous,

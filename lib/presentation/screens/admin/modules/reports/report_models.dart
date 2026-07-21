@@ -59,6 +59,7 @@ extension ReportPreviewMetricX on ReportPreviewMetric {
 
 enum ReportAnalyticsSection {
   sales,
+  expenses,
   appointments,
   clients,
   staff,
@@ -71,6 +72,8 @@ extension ReportAnalyticsSectionX on ReportAnalyticsSection {
     switch (this) {
       case ReportAnalyticsSection.sales:
         return 'Vendite';
+      case ReportAnalyticsSection.expenses:
+        return 'Uscite';
       case ReportAnalyticsSection.appointments:
         return 'Appuntamenti';
       case ReportAnalyticsSection.clients:
@@ -87,6 +90,7 @@ extension ReportAnalyticsSectionX on ReportAnalyticsSection {
 
 enum ReportExportDataset {
   sales,
+  expenses,
   appointments,
   clients,
   staff,
@@ -99,6 +103,8 @@ extension ReportExportDatasetX on ReportExportDataset {
     switch (this) {
       case ReportExportDataset.sales:
         return 'Vendite';
+      case ReportExportDataset.expenses:
+        return 'Uscite';
       case ReportExportDataset.appointments:
         return 'Appuntamenti';
       case ReportExportDataset.clients:
@@ -116,6 +122,8 @@ extension ReportExportDatasetX on ReportExportDataset {
     switch (this) {
       case ReportExportDataset.sales:
         return 'vendite';
+      case ReportExportDataset.expenses:
+        return 'uscite';
       case ReportExportDataset.appointments:
         return 'appuntamenti';
       case ReportExportDataset.clients:

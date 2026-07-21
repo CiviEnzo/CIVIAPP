@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/sale.dart';
@@ -54,6 +55,71 @@ void main() {
       expect(snapshot.inventoryAlerts.length, 1);
       expect(snapshot.promotionCtr, closeTo(0.1, 0.0001));
       expect(snapshot.topServices.first.name, 'Trattamento viso');
+    });
+
+    test('uses competence for profit and payment date for cash flow', () {
+      final state = _buildState(
+        shifts: const [],
+        expenseCategories: const [
+          ExpenseCategory(
+            id: 'expense-cat-1',
+            salonId: 'salon-1',
+            name: 'Affitto',
+          ),
+        ],
+        expenses: [
+          Expense(
+            id: 'expense-current-competence',
+            salonId: 'salon-1',
+            categoryId: 'expense-cat-1',
+            title: 'Canone marzo',
+            totalAmount: 40,
+            competenceDate: DateTime(2026, 3, 2),
+            dueDate: DateTime(2026, 3, 5),
+            createdAt: DateTime(2026, 3, 1),
+            payments: [
+              ExpensePayment(
+                id: 'payment-outside-period',
+                amount: 40,
+                date: DateTime(2026, 4, 1),
+                paymentMethod: PaymentMethod.transfer,
+              ),
+            ],
+          ),
+          Expense(
+            id: 'expense-paid-in-period',
+            salonId: 'salon-1',
+            categoryId: 'expense-cat-1',
+            title: 'Saldo febbraio',
+            totalAmount: 30,
+            competenceDate: DateTime(2026, 2, 20),
+            dueDate: DateTime(2026, 2, 28),
+            createdAt: DateTime(2026, 2, 20),
+            payments: [
+              ExpensePayment(
+                id: 'payment-inside-period',
+                amount: 30,
+                date: DateTime(2026, 3, 3),
+                paymentMethod: PaymentMethod.transfer,
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final snapshot = ReportsAggregator.build(
+        data: state,
+        filters: _filters(),
+      );
+
+      expect(snapshot.current.totalRevenue, 100);
+      expect(snapshot.current.totalExpenses, 40);
+      expect(snapshot.current.netProfit, 60);
+      expect(snapshot.current.cashOut, 30);
+      expect(snapshot.current.netCashFlow, 70);
+      expect(snapshot.filteredExpenses.map((item) => item.id), [
+        'expense-current-competence',
+      ]);
     });
 
     test('falls back to salon schedule when shifts are missing', () {
@@ -142,6 +208,8 @@ AppDataState _buildState({
       closeMinuteOfDay: 17 * 60,
     ),
   ],
+  List<ExpenseCategory> expenseCategories = const <ExpenseCategory>[],
+  List<Expense> expenses = const <Expense>[],
 }) {
   return AppDataState.initial().copyWith(
     salons: [
@@ -281,6 +349,8 @@ AppDataState _buildState({
         sellingPrice: 20,
       ),
     ],
+    expenseCategories: expenseCategories,
+    expenses: expenses,
     promotions: [
       Promotion(
         id: 'promo-1',

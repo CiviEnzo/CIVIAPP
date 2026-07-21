@@ -6,6 +6,7 @@ import 'package:you_book/app/reporting_config.dart';
 import 'package:you_book/data/repositories/app_data_state.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/sale.dart';
@@ -61,6 +62,14 @@ class FilteredSaleRecord {
 class ReportPeriodSummary {
   const ReportPeriodSummary({
     required this.totalRevenue,
+    required this.totalExpenses,
+    required this.paidExpenses,
+    required this.unpaidExpenses,
+    required this.cashOut,
+    required this.netProfit,
+    required this.netCashFlow,
+    required this.overdueExpenses,
+    required this.overdueExpensesCount,
     required this.salesCount,
     required this.averageTicket,
     required this.newClients,
@@ -75,6 +84,14 @@ class ReportPeriodSummary {
   });
 
   final double totalRevenue;
+  final double totalExpenses;
+  final double paidExpenses;
+  final double unpaidExpenses;
+  final double cashOut;
+  final double netProfit;
+  final double netCashFlow;
+  final double overdueExpenses;
+  final int overdueExpensesCount;
   final int salesCount;
   final double averageTicket;
   final int newClients;
@@ -104,6 +121,11 @@ class ReportPeriodSummary {
 
   double get returningClientsRate =>
       activeClients == 0 ? 0 : returningClients / activeClients;
+
+  double get netMargin => totalRevenue <= 0 ? 0 : netProfit / totalRevenue;
+
+  double get expenseToRevenueRatio =>
+      totalRevenue <= 0 ? 0 : totalExpenses / totalRevenue;
 }
 
 class ReportTopServiceEntry {
@@ -130,6 +152,22 @@ class ReportCategoryRevenueEntry {
   final String categoryId;
   final String label;
   final double revenue;
+}
+
+class ReportExpenseCategoryEntry {
+  const ReportExpenseCategoryEntry({
+    required this.categoryId,
+    required this.label,
+    required this.amount,
+    required this.paidAmount,
+    required this.unpaidAmount,
+  });
+
+  final String categoryId;
+  final String label;
+  final double amount;
+  final double paidAmount;
+  final double unpaidAmount;
 }
 
 class ReportLabeledValue {
@@ -197,17 +235,21 @@ class ReportsSnapshot {
     required this.current,
     required this.previous,
     required this.filteredSales,
+    required this.filteredExpenses,
     required this.filteredAppointments,
     required this.filteredClients,
     required this.currentActiveClientIds,
     required this.currentReturningClientIds,
     required this.trendGranularity,
     required this.revenueTrend,
+    required this.expenseTrend,
+    required this.netTrend,
     required this.appointmentTrend,
     required this.clientTrend,
     required this.occupancyTrend,
     required this.topServices,
     required this.revenueByCategory,
+    required this.expensesByCategory,
     required this.bookingChannelMix,
     required this.referralSources,
     required this.staffPerformance,
@@ -218,6 +260,7 @@ class ReportsSnapshot {
     required this.staffLookup,
     required this.serviceLookup,
     required this.categoryLookup,
+    required this.expenseCategoryLookup,
   });
 
   final ReportFilters filters;
@@ -226,17 +269,21 @@ class ReportsSnapshot {
   final ReportPeriodSummary current;
   final ReportPeriodSummary previous;
   final List<FilteredSaleRecord> filteredSales;
+  final List<Expense> filteredExpenses;
   final List<Appointment> filteredAppointments;
   final List<Client> filteredClients;
   final Set<String> currentActiveClientIds;
   final Set<String> currentReturningClientIds;
   final ReportTrendGranularity trendGranularity;
   final List<ReportTrendPoint> revenueTrend;
+  final List<ReportTrendPoint> expenseTrend;
+  final List<ReportTrendPoint> netTrend;
   final List<ReportTrendPoint> appointmentTrend;
   final List<ReportTrendPoint> clientTrend;
   final List<ReportTrendPoint> occupancyTrend;
   final List<ReportTopServiceEntry> topServices;
   final List<ReportCategoryRevenueEntry> revenueByCategory;
+  final List<ReportExpenseCategoryEntry> expensesByCategory;
   final List<ReportLabeledValue> bookingChannelMix;
   final List<ReportLabeledValue> referralSources;
   final List<ReportStaffPerformanceRow> staffPerformance;
@@ -247,9 +294,11 @@ class ReportsSnapshot {
   final Map<String, StaffMember> staffLookup;
   final Map<String, Service> serviceLookup;
   final Map<String, ServiceCategory> categoryLookup;
+  final Map<String, ExpenseCategory> expenseCategoryLookup;
 
   bool get hasAnyData =>
       filteredSales.isNotEmpty ||
+      filteredExpenses.isNotEmpty ||
       filteredAppointments.isNotEmpty ||
       filteredClients.isNotEmpty ||
       inventoryEntries.isNotEmpty ||
@@ -330,6 +379,16 @@ class ReportsAggregator {
       for (final category in categories) category.id: category,
     };
 
+    final expenseCategories = data.expenseCategories
+        .where(
+          (category) =>
+              filters.salonId == null || category.salonId == filters.salonId,
+        )
+        .toList(growable: false);
+    final expenseCategoryLookup = {
+      for (final category in expenseCategories) category.id: category,
+    };
+
     final clients = data.clients
         .where(
           (client) =>
@@ -359,6 +418,19 @@ class ReportsAggregator {
     final allReportingClients = clients
         .where((client) => includeInReporting(primary: client.createdAt))
         .toList(growable: false);
+    final allReportingExpenses = data.expenses
+        .where(
+          (expense) =>
+              filters.salonId == null || expense.salonId == filters.salonId,
+        )
+        .where((expense) => !expense.isDeleted && !expense.isCancelled)
+        .where(
+          (expense) => includeInReporting(
+            primary: expense.createdAt,
+            fallback: expense.competenceDate,
+          ),
+        )
+        .toList(growable: false);
 
     final currentSales = _filterSales(
       sales: allReportingSales,
@@ -370,6 +442,15 @@ class ReportsAggregator {
       sales: allReportingSales,
       serviceLookup: serviceLookup,
       filters: filters,
+      range: comparison.previous,
+    );
+
+    final currentExpenses = _filterExpenses(
+      expenses: allReportingExpenses,
+      range: comparison.current,
+    );
+    final previousExpenses = _filterExpenses(
+      expenses: allReportingExpenses,
       range: comparison.previous,
     );
 
@@ -447,6 +528,11 @@ class ReportsAggregator {
 
     final currentSummary = _buildPeriodSummary(
       sales: currentSales,
+      expenses: currentExpenses,
+      cashOut: _sumExpensePaymentsInRange(
+        expenses: allReportingExpenses,
+        range: comparison.current,
+      ),
       appointments: currentAppointments,
       clients: currentClients,
       activeClientIds: currentClientIds,
@@ -455,6 +541,11 @@ class ReportsAggregator {
     );
     final previousSummary = _buildPeriodSummary(
       sales: previousSales,
+      expenses: previousExpenses,
+      cashOut: _sumExpensePaymentsInRange(
+        expenses: allReportingExpenses,
+        range: comparison.previous,
+      ),
       appointments: previousAppointments,
       clients: previousClients,
       activeClientIds: previousClientIds,
@@ -467,6 +558,12 @@ class ReportsAggregator {
       range: comparison.current,
       granularity: trendGranularity,
     );
+    final expenseTrend = _buildExpenseTrend(
+      expenses: currentExpenses,
+      range: comparison.current,
+      granularity: trendGranularity,
+    );
+    final netTrend = _buildNetTrend(revenueTrend, expenseTrend);
     final appointmentTrend = _buildAppointmentTrend(
       appointments: currentAppointments,
       range: comparison.current,
@@ -491,6 +588,10 @@ class ReportsAggregator {
       sales: currentSales,
       serviceLookup: serviceLookup,
       categoryLookup: categoryLookup,
+    );
+    final expensesByCategory = _buildExpensesByCategory(
+      expenses: currentExpenses,
+      categoryLookup: expenseCategoryLookup,
     );
     final bookingChannelMix = _buildBookingChannelMix(currentAppointments);
     final referralSources = _buildReferralSources(currentClients);
@@ -561,17 +662,21 @@ class ReportsAggregator {
       current: currentSummary,
       previous: previousSummary,
       filteredSales: List.unmodifiable(currentSales),
+      filteredExpenses: List.unmodifiable(currentExpenses),
       filteredAppointments: List.unmodifiable(currentAppointments),
       filteredClients: List.unmodifiable(currentClients),
       currentActiveClientIds: Set.unmodifiable(currentClientIds),
       currentReturningClientIds: Set.unmodifiable(currentReturningClients),
       trendGranularity: trendGranularity,
       revenueTrend: List.unmodifiable(revenueTrend),
+      expenseTrend: List.unmodifiable(expenseTrend),
+      netTrend: List.unmodifiable(netTrend),
       appointmentTrend: List.unmodifiable(appointmentTrend),
       clientTrend: List.unmodifiable(clientTrend),
       occupancyTrend: List.unmodifiable(occupancyTrend),
       topServices: List.unmodifiable(topServices),
       revenueByCategory: List.unmodifiable(revenueByCategory),
+      expensesByCategory: List.unmodifiable(expensesByCategory),
       bookingChannelMix: List.unmodifiable(bookingChannelMix),
       referralSources: List.unmodifiable(referralSources),
       staffPerformance: List.unmodifiable(staffPerformance),
@@ -582,6 +687,7 @@ class ReportsAggregator {
       staffLookup: Map.unmodifiable(staffLookup),
       serviceLookup: Map.unmodifiable(serviceLookup),
       categoryLookup: Map.unmodifiable(categoryLookup),
+      expenseCategoryLookup: Map.unmodifiable(expenseCategoryLookup),
     );
   }
 
@@ -739,6 +845,18 @@ class ReportsAggregator {
     return List.unmodifiable(results);
   }
 
+  static List<Expense> _filterExpenses({
+    required List<Expense> expenses,
+    required DateTimeRange range,
+  }) {
+    final results =
+        expenses
+            .where((expense) => _isInRange(expense.competenceDate, range))
+            .toList()
+          ..sort((a, b) => b.competenceDate.compareTo(a.competenceDate));
+    return List.unmodifiable(results);
+  }
+
   static Map<String, DateTime> _buildClientFirstEngagementMap({
     required List<Sale> sales,
     required List<Appointment> appointments,
@@ -774,6 +892,8 @@ class ReportsAggregator {
 
   static ReportPeriodSummary _buildPeriodSummary({
     required List<FilteredSaleRecord> sales,
+    required List<Expense> expenses,
+    required double cashOut,
     required List<Appointment> appointments,
     required List<Client> clients,
     required Set<String> activeClientIds,
@@ -784,6 +904,26 @@ class ReportsAggregator {
       0,
       (sum, sale) => sum + sale.amount,
     );
+    final totalExpenses = expenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.totalAmount,
+    );
+    final paidExpenses = expenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.paidAmount,
+    );
+    final unpaidExpenses = expenses.fold<double>(
+      0,
+      (sum, expense) => sum + expense.outstandingAmount,
+    );
+    final now = DateTime.now();
+    final overdue = expenses.where((expense) => expense.isOverdue(now));
+    final overdueExpenses = overdue.fold<double>(
+      0,
+      (sum, expense) => sum + expense.outstandingAmount,
+    );
+    final netProfit = totalRevenue - totalExpenses;
+    final netCashFlow = totalRevenue - cashOut;
     final salesCount = sales.length;
     final averageTicket = salesCount == 0 ? 0.0 : totalRevenue / salesCount;
     final completed =
@@ -818,6 +958,14 @@ class ReportsAggregator {
 
     return ReportPeriodSummary(
       totalRevenue: totalRevenue,
+      totalExpenses: totalExpenses,
+      paidExpenses: paidExpenses,
+      unpaidExpenses: unpaidExpenses,
+      cashOut: cashOut,
+      netProfit: netProfit,
+      netCashFlow: netCashFlow,
+      overdueExpenses: overdueExpenses,
+      overdueExpensesCount: overdue.length,
       salesCount: salesCount,
       averageTicket: averageTicket,
       newClients: clients.length,
@@ -891,6 +1039,39 @@ class ReportsAggregator {
             )
             .toList()
           ..sort((a, b) => b.revenue.compareTo(a.revenue));
+    return List.unmodifiable(results);
+  }
+
+  static List<ReportExpenseCategoryEntry> _buildExpensesByCategory({
+    required List<Expense> expenses,
+    required Map<String, ExpenseCategory> categoryLookup,
+  }) {
+    final totals = <String, double>{};
+    final paid = <String, double>{};
+    final unpaid = <String, double>{};
+    final labels = <String, String>{};
+    for (final expense in expenses) {
+      final categoryId =
+          expense.categoryId.isEmpty ? 'uncategorized' : expense.categoryId;
+      labels[categoryId] = categoryLookup[categoryId]?.name ?? 'Senza voce';
+      totals[categoryId] = (totals[categoryId] ?? 0) + expense.totalAmount;
+      paid[categoryId] = (paid[categoryId] ?? 0) + expense.paidAmount;
+      unpaid[categoryId] =
+          (unpaid[categoryId] ?? 0) + expense.outstandingAmount;
+    }
+    final results =
+        totals.entries
+            .map(
+              (entry) => ReportExpenseCategoryEntry(
+                categoryId: entry.key,
+                label: labels[entry.key] ?? entry.key,
+                amount: entry.value,
+                paidAmount: paid[entry.key] ?? 0,
+                unpaidAmount: unpaid[entry.key] ?? 0,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.amount.compareTo(a.amount));
     return List.unmodifiable(results);
   }
 
@@ -1041,6 +1222,57 @@ class ReportsAggregator {
       bucket[key] = (bucket[key] ?? 0) + entry.amount;
     }
     return _bucketToPoints(bucket);
+  }
+
+  static List<ReportTrendPoint> _buildExpenseTrend({
+    required List<Expense> expenses,
+    required DateTimeRange range,
+    required ReportTrendGranularity granularity,
+  }) {
+    final bucket = _createBucket(range: range, granularity: granularity);
+    for (final expense in expenses) {
+      final key = _bucketKey(expense.competenceDate, granularity);
+      if (!bucket.containsKey(key)) {
+        continue;
+      }
+      bucket[key] = (bucket[key] ?? 0) + expense.totalAmount;
+    }
+    return _bucketToPoints(bucket);
+  }
+
+  static List<ReportTrendPoint> _buildNetTrend(
+    List<ReportTrendPoint> revenueTrend,
+    List<ReportTrendPoint> expenseTrend,
+  ) {
+    final expensesByDate = {
+      for (final point in expenseTrend) point.date: point.value,
+    };
+    return List.unmodifiable(
+      revenueTrend
+          .map(
+            (point) => ReportTrendPoint(
+              date: point.date,
+              value: point.value - (expensesByDate[point.date] ?? 0),
+              estimated: point.estimated,
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  static double _sumExpensePaymentsInRange({
+    required List<Expense> expenses,
+    required DateTimeRange range,
+  }) {
+    var total = 0.0;
+    for (final expense in expenses) {
+      for (final payment in expense.payments) {
+        if (_isInRange(payment.date, range)) {
+          total += payment.amount;
+        }
+      }
+    }
+    return total;
   }
 
   static List<ReportTrendPoint> _buildAppointmentTrend({

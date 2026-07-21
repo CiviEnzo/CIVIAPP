@@ -18,13 +18,20 @@ import 'package:you_book/domain/entities/user_role.dart';
 import 'package:you_book/services/payments/stripe_connect_service.dart';
 import 'package:you_book/services/payments/stripe_payments_service.dart';
 import 'package:you_book/services/notifications/notification_service.dart';
+import 'package:you_book/services/feedback/app_feedback_service.dart';
+import 'package:you_book/services/rating/app_rating_service.dart';
+import 'package:you_book/services/telemetry/app_telemetry_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:you_book/services/whatsapp_service.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -123,6 +130,29 @@ final firebaseInAppMessagingProvider = Provider<FirebaseInAppMessaging>((ref) {
   return FirebaseInAppMessaging.instance;
 });
 
+final firebaseAnalyticsProvider = Provider<FirebaseAnalytics?>((ref) {
+  if (Firebase.apps.isEmpty) {
+    return null;
+  }
+  return FirebaseAnalytics.instance;
+});
+
+bool get _supportsCrashlytics {
+  if (kIsWeb) {
+    return false;
+  }
+  return defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+final firebaseCrashlyticsProvider = Provider<FirebaseCrashlytics?>((ref) {
+  if (Firebase.apps.isEmpty) {
+    return null;
+  }
+  return _supportsCrashlytics ? FirebaseCrashlytics.instance : null;
+});
+
 final firebaseFunctionsProvider = Provider<FirebaseFunctions>((ref) {
   return FirebaseFunctions.instanceFor(region: 'europe-west1');
 });
@@ -149,6 +179,25 @@ final stripePaymentsServiceProvider = Provider<StripePaymentsService>((ref) {
 
 final stripeConnectServiceProvider = Provider<StripeConnectService>((ref) {
   return StripeConnectService();
+});
+
+final appTelemetryServiceProvider = Provider<AppTelemetryService>((ref) {
+  return AppTelemetryService(
+    analytics: ref.watch(firebaseAnalyticsProvider),
+    crashlytics: ref.watch(firebaseCrashlyticsProvider),
+  );
+});
+
+final appRatingServiceProvider = Provider<AppRatingService>((ref) {
+  return AppRatingService(telemetry: ref.watch(appTelemetryServiceProvider));
+});
+
+final appFeedbackServiceProvider = Provider<AppFeedbackService>((ref) {
+  return AppFeedbackService(
+    firestore: FirebaseFirestore.instance,
+    auth: FirebaseAuth.instance,
+    telemetry: ref.watch(appTelemetryServiceProvider),
+  );
 });
 
 final whatsappConfigProvider = StreamProvider.family<WhatsAppConfig?, String>((
@@ -316,7 +365,7 @@ final salonSetupProgressProvider = Provider.family<AdminSetupProgress?, String>(
 );
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  return createRouter(ref);
+  return createRouter(ref, analytics: ref.watch(firebaseAnalyticsProvider));
 });
 
 final cartControllerProvider = StateNotifierProvider<CartController, CartState>(

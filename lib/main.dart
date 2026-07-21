@@ -1,14 +1,13 @@
+import 'dart:async';
+
 import 'package:you_book/app/app.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/firebase_options.dart';
 import 'package:you_book/services/notifications/notification_service.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_in_app_messaging/firebase_in_app_messaging.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -70,6 +69,50 @@ void _installDebugMacOSKeyboardAssertionWorkaround() {
   };
 }
 
+bool get _supportsCrashlytics {
+  if (kIsWeb) {
+    return false;
+  }
+  return defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+Future<void> _installCrashlyticsErrorReporting() async {
+  if (!_supportsCrashlytics) {
+    return;
+  }
+
+  try {
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+      !kDebugMode,
+    );
+  } catch (error, stackTrace) {
+    debugPrint('Impossibile configurare Crashlytics: $error');
+    debugPrintStack(stackTrace: stackTrace);
+    return;
+  }
+
+  final previousFlutterOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    previousFlutterOnError?.call(details);
+    if (_isDebugMacOSCapsLockKeyUpAssertion(details.exception)) {
+      return;
+    }
+    unawaited(FirebaseCrashlytics.instance.recordFlutterFatalError(details));
+  };
+
+  final previousPlatformOnError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (!_isDebugMacOSCapsLockKeyUpAssertion(error)) {
+      unawaited(
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true),
+      );
+    }
+    return previousPlatformOnError?.call(error, stack) ?? true;
+  };
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -90,6 +133,7 @@ Future<void> main() async {
     debugPrintStack(stackTrace: stackTrace);
     rethrow;
   }
+  await _installCrashlyticsErrorReporting();
 
   /* if (kDebugMode) {
     final emulatorHost = _isTargetPlatform(TargetPlatform.android)

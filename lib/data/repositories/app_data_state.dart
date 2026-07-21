@@ -8,6 +8,7 @@ import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/message_template.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
@@ -44,6 +45,10 @@ class AppDataState {
     required this.publicAppointments,
     required this.quotes,
     required this.paymentTickets,
+    required this.expenseCategories,
+    required this.expenses,
+    required this.expenseRecurringRules,
+    required this.expenseSettings,
     required this.inventoryItems,
     required this.sales,
     required this.cashFlowEntries,
@@ -82,6 +87,10 @@ class AppDataState {
       publicAppointments: [],
       quotes: [],
       paymentTickets: [],
+      expenseCategories: [],
+      expenses: [],
+      expenseRecurringRules: [],
+      expenseSettings: [],
       inventoryItems: [],
       sales: [],
       cashFlowEntries: [],
@@ -119,6 +128,10 @@ class AppDataState {
   final List<Appointment> publicAppointments;
   final List<Quote> quotes;
   final List<PaymentTicket> paymentTickets;
+  final List<ExpenseCategory> expenseCategories;
+  final List<Expense> expenses;
+  final List<ExpenseRecurringRule> expenseRecurringRules;
+  final List<ExpenseSettings> expenseSettings;
   final List<InventoryItem> inventoryItems;
   final List<Sale> sales;
   final List<CashFlowEntry> cashFlowEntries;
@@ -155,6 +168,10 @@ class AppDataState {
     List<Appointment>? publicAppointments,
     List<Quote>? quotes,
     List<PaymentTicket>? paymentTickets,
+    List<ExpenseCategory>? expenseCategories,
+    List<Expense>? expenses,
+    List<ExpenseRecurringRule>? expenseRecurringRules,
+    List<ExpenseSettings>? expenseSettings,
     List<InventoryItem>? inventoryItems,
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
@@ -191,6 +208,11 @@ class AppDataState {
       publicAppointments: publicAppointments ?? this.publicAppointments,
       quotes: quotes ?? this.quotes,
       paymentTickets: paymentTickets ?? this.paymentTickets,
+      expenseCategories: expenseCategories ?? this.expenseCategories,
+      expenses: expenses ?? this.expenses,
+      expenseRecurringRules:
+          expenseRecurringRules ?? this.expenseRecurringRules,
+      expenseSettings: expenseSettings ?? this.expenseSettings,
       inventoryItems: inventoryItems ?? this.inventoryItems,
       sales: sales ?? this.sales,
       cashFlowEntries: cashFlowEntries ?? this.cashFlowEntries,

@@ -14,18 +14,24 @@ import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
 import 'package:you_book/presentation/screens/client/client_dashboard_screen.dart';
 import 'package:you_book/presentation/screens/client/client_salon_discovery_screen.dart';
 import 'package:you_book/presentation/screens/staff/staff_dashboard_screen.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-GoRouter createRouter(Ref ref) {
+GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
   final sessionNotifier = ref.read(sessionControllerProvider.notifier);
   final refreshNotifier = _RouterRefreshNotifier(sessionNotifier.stream);
   ref.onDispose(refreshNotifier.dispose);
+  final analyticsObserver =
+      analytics == null
+          ? null
+          : FirebaseAnalyticsObserver(analytics: analytics);
 
   return GoRouter(
     initialLocation: '/',
     refreshListenable: refreshNotifier,
+    observers: [if (analyticsObserver != null) analyticsObserver],
     routes: [
       GoRoute(
         path: '/',

@@ -546,6 +546,8 @@ class AppointmentCalendarView extends StatefulWidget {
     required this.salonsById,
     this.selectedSalonId,
     required this.lockedAppointmentReasons,
+    this.expenseCountsByDay = const <DateTime, int>{},
+    this.onTapExpenseIndicator,
     required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
@@ -594,6 +596,8 @@ class AppointmentCalendarView extends StatefulWidget {
   final Map<String, Salon> salonsById;
   final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
+  final Map<DateTime, int> expenseCountsByDay;
+  final ValueChanged<DateTime>? onTapExpenseIndicator;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final DateTime? extraDetailedDay;
   final VoidCallback? onJumpToNextWeek;
@@ -1452,6 +1456,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
               salonsById: widget.salonsById,
               selectedSalonId: widget.selectedSalonId,
               lockedAppointmentReasons: widget.lockedAppointmentReasons,
+              expenseCountsByDay: widget.expenseCountsByDay,
+              onTapExpenseIndicator: widget.onTapExpenseIndicator,
               dayChecklists: widget.dayChecklists,
               onReschedule: widget.onReschedule,
               onEdit: widget.onEdit,
@@ -1510,6 +1516,8 @@ class _AppointmentCalendarViewState extends State<AppointmentCalendarView> {
               salonsById: widget.salonsById,
               selectedSalonId: widget.selectedSalonId,
               lockedAppointmentReasons: widget.lockedAppointmentReasons,
+              expenseCountsByDay: widget.expenseCountsByDay,
+              onTapExpenseIndicator: widget.onTapExpenseIndicator,
               dayChecklists: widget.dayChecklists,
               onReschedule: widget.onReschedule,
               onEdit: widget.onEdit,
@@ -1602,6 +1610,8 @@ class _DaySchedule extends StatelessWidget {
     required this.salonsById,
     this.selectedSalonId,
     required this.lockedAppointmentReasons,
+    required this.expenseCountsByDay,
+    this.onTapExpenseIndicator,
     required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
@@ -1647,6 +1657,8 @@ class _DaySchedule extends StatelessWidget {
   final Map<String, Salon> salonsById;
   final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
+  final Map<DateTime, int> expenseCountsByDay;
+  final ValueChanged<DateTime>? onTapExpenseIndicator;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
   final Color Function(AppointmentStatus status) statusColor;
   final AppointmentRescheduleCallback onReschedule;
@@ -1766,6 +1778,7 @@ class _DaySchedule extends StatelessWidget {
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
         dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    final expenseCount = expenseCountsByDay[normalizedDay] ?? 0;
 
     final theme = Theme.of(context);
     final headerColor = theme.colorScheme.surfaceContainerHighest.withValues(
@@ -1851,6 +1864,14 @@ class _DaySchedule extends StatelessWidget {
                                 style: theme.textTheme.titleMedium,
                               ),
                             ),
+                            if (expenseCount > 0) ...[
+                              const SizedBox(width: 12),
+                              _ExpenseDayIndicator(
+                                day: normalizedDay,
+                                count: expenseCount,
+                                onTap: onTapExpenseIndicator,
+                              ),
+                            ],
                             if (showChecklistLauncher) ...[
                               const SizedBox(width: 12),
                               _ChecklistDialogLauncher(
@@ -2275,6 +2296,8 @@ class _WeekSchedule extends StatelessWidget {
     required this.salonsById,
     this.selectedSalonId,
     required this.lockedAppointmentReasons,
+    required this.expenseCountsByDay,
+    this.onTapExpenseIndicator,
     required this.dayChecklists,
     required this.onReschedule,
     required this.onEdit,
@@ -2342,6 +2365,8 @@ class _WeekSchedule extends StatelessWidget {
   final double slotExtent;
   final int interactionSlotMinutes;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
+  final Map<DateTime, int> expenseCountsByDay;
+  final ValueChanged<DateTime>? onTapExpenseIndicator;
   final Future<void> Function(DateTime day, String label)? onAddChecklistItem;
   final Future<void> Function(
     String checklistId,
@@ -2449,6 +2474,7 @@ class _WeekSchedule extends StatelessWidget {
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
         dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    final expenseCount = expenseCountsByDay[data.date] ?? 0;
     final closures = _closuresForDay(
       day: data.date,
       salonsById: salonsById,
@@ -2531,6 +2557,13 @@ class _WeekSchedule extends StatelessWidget {
                           alignment: WrapAlignment.end,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
+                            if (expenseCount > 0)
+                              _ExpenseDayIndicator(
+                                day: data.date,
+                                count: expenseCount,
+                                onTap: onTapExpenseIndicator,
+                                showLabel: showHeaderChipLabels,
+                              ),
                             _summaryChip(
                               theme: theme,
                               icon: Icons.event_available_rounded,
@@ -2891,6 +2924,8 @@ class _WeekSchedule extends StatelessWidget {
         selectedSalonId: selectedSalonId,
         lockedAppointmentReasons: lockedAppointmentReasons,
         dayChecklists: dayChecklists,
+        expenseCountsByDay: expenseCountsByDay,
+        onTapExpenseIndicator: onTapExpenseIndicator,
         onReschedule: onReschedule,
         onEdit: onEdit,
         onCreate: onCreate,
@@ -3832,6 +3867,66 @@ class _ChecklistSectionState extends State<_ChecklistSection> {
   }
 }
 
+class _ExpenseDayIndicator extends StatelessWidget {
+  const _ExpenseDayIndicator({
+    required this.day,
+    required this.count,
+    this.onTap,
+    this.compact = false,
+    this.showLabel = false,
+  });
+
+  final DateTime day;
+  final int count;
+  final ValueChanged<DateTime>? onTap;
+  final bool compact;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.error;
+    final label = showLabel ? '$count uscite' : '$count';
+    final child = Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 5 : 6,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.receipt_long_outlined,
+            size: compact ? 14 : 16,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Tooltip(
+      message: count == 1 ? '1 uscita nel giorno' : '$count uscite nel giorno',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap == null ? null : () => onTap!(day),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _ChecklistDialogLauncher extends StatelessWidget {
   const _ChecklistDialogLauncher({
     required this.day,
@@ -4561,6 +4656,8 @@ class _WeekCompactView extends StatelessWidget {
     this.selectedSalonId,
     required this.lockedAppointmentReasons,
     required this.dayChecklists,
+    required this.expenseCountsByDay,
+    this.onTapExpenseIndicator,
     required this.onReschedule,
     required this.onEdit,
     required this.onCreate,
@@ -4604,6 +4701,8 @@ class _WeekCompactView extends StatelessWidget {
   final String? selectedSalonId;
   final Map<String, String> lockedAppointmentReasons;
   final Map<DateTime, AppointmentDayChecklist> dayChecklists;
+  final Map<DateTime, int> expenseCountsByDay;
+  final ValueChanged<DateTime>? onTapExpenseIndicator;
   final AppointmentRescheduleCallback onReschedule;
   final AppointmentTapCallback onEdit;
   final AppointmentSlotSelectionCallback onCreate;
@@ -4868,6 +4967,7 @@ class _WeekCompactView extends StatelessWidget {
     final checklistTotal = dayChecklist?.items.length ?? 0;
     final checklistCompleted =
         dayChecklist?.items.where((item) => item.isCompleted).length ?? 0;
+    final expenseCount = expenseCountsByDay[data.date] ?? 0;
     final hasChecklistItems = checklistTotal > 0;
     final canManageChecklist =
         onAddChecklistItem != null ||
@@ -4949,6 +5049,15 @@ class _WeekCompactView extends StatelessWidget {
               Expanded(
                 child: Text(dateLabel, style: theme.textTheme.titleMedium),
               ),
+              if (expenseCount > 0) ...[
+                const SizedBox(width: 8),
+                _ExpenseDayIndicator(
+                  day: data.date,
+                  count: expenseCount,
+                  onTap: onTapExpenseIndicator,
+                  compact: true,
+                ),
+              ],
               if (showChecklistLauncher) ...[
                 const SizedBox(width: 8),
                 _ChecklistDialogLauncher(

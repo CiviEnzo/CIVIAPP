@@ -13,6 +13,7 @@ import 'package:you_book/domain/entities/staff_absence_request.dart';
 import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/shift.dart';
 import 'package:you_book/presentation/common/app_version_badge.dart';
+import 'package:you_book/presentation/common/app_feedback_dialog.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/theme_mode_action.dart';
 import 'package:you_book/presentation/common/hybrid_image_picker.dart';
@@ -36,6 +37,8 @@ class StaffDashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<StaffDashboardScreen> createState() =>
       _StaffDashboardScreenState();
 }
+
+enum _StaffSupportAction { rateApp, feedback }
 
 class _AppointmentDetailSheet extends ConsumerWidget {
   const _AppointmentDetailSheet({required this.appointment});
@@ -1321,6 +1324,45 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
             tabs: [Tab(text: 'Agenda'), Tab(text: 'Ferie & Permessi')],
           ),
           actions: [
+            PopupMenuButton<_StaffSupportAction>(
+              tooltip: 'Supporto',
+              icon: const Icon(Icons.support_agent_rounded),
+              onSelected: (action) {
+                switch (action) {
+                  case _StaffSupportAction.rateApp:
+                    unawaited(_rateApp());
+                    break;
+                  case _StaffSupportAction.feedback:
+                    unawaited(
+                      showAppFeedbackDialog(
+                        context,
+                        ref,
+                        source: 'staff_dashboard_app_bar',
+                      ),
+                    );
+                    break;
+                }
+              },
+              itemBuilder:
+                  (context) => const [
+                    PopupMenuItem(
+                      value: _StaffSupportAction.rateApp,
+                      child: ListTile(
+                        leading: Icon(Icons.star_rate_rounded),
+                        title: Text('Valuta l\'app'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _StaffSupportAction.feedback,
+                      child: ListTile(
+                        leading: Icon(Icons.feedback_rounded),
+                        title: Text('Invia feedback app'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+            ),
             const ThemeModeAction(),
             IconButton(
               tooltip: 'Esci',
@@ -1355,6 +1397,18 @@ class _StaffDashboardScreenState extends ConsumerState<StaffDashboardScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _rateApp() async {
+    final launched = await ref
+        .read(appRatingServiceProvider)
+        .openStoreListing(source: 'staff_dashboard_app_bar');
+    if (!mounted || launched) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showAppSnackBar(
+      const SnackBar(content: Text('Impossibile aprire lo store.')),
     );
   }
 }

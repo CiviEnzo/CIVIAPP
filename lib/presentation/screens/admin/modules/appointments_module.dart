@@ -7,6 +7,7 @@ import 'package:you_book/domain/availability/equipment_availability.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/appointment_day_checklist.dart';
 import 'package:you_book/domain/entities/client.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/last_minute_notification.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/payment_ticket.dart';
@@ -36,6 +37,7 @@ import 'package:you_book/presentation/screens/admin/modules/appointments/appoint
 import 'package:you_book/presentation/screens/admin/modules/client_detail_page.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/express_slot_sheet.dart';
 import 'package:you_book/presentation/screens/admin/modules/appointments/appointment_save_utils.dart';
+import 'package:you_book/presentation/screens/admin/modules/expenses/expense_agenda_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:collection/collection.dart';
@@ -152,6 +154,7 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
   int _calendarSlotMinutes = 30;
   int? _preferredSlotMinutes;
   bool _checklistEditingEnabled = true;
+  bool _showExpensesInAgendaForUser = true;
   _WeekLayoutMode _weekLayoutMode = _WeekLayoutMode.detailed;
   final Set<int> _visibleWeekdays = {
     DateTime.monday,
@@ -407,6 +410,30 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
         .sortedByDisplayOrder();
   }
 
+  Map<DateTime, int> _expenseCountsByDay({
+    required List<Expense> expenses,
+    required String? salonId,
+    required DateTime rangeStart,
+    required DateTime rangeEnd,
+  }) {
+    final counts = <DateTime, int>{};
+    for (final expense in expenses) {
+      if (expense.isDeleted || expense.isCancelled) {
+        continue;
+      }
+      if (salonId != null && expense.salonId != salonId) {
+        continue;
+      }
+      final day = DateUtils.dateOnly(expense.dueDate);
+      if (day.isBefore(DateUtils.dateOnly(rangeStart)) ||
+          day.isAfter(DateUtils.dateOnly(rangeEnd))) {
+        continue;
+      }
+      counts[day] = (counts[day] ?? 0) + 1;
+    }
+    return Map.unmodifiable(counts);
+  }
+
   void _publishAppBarState(String rangeLabel) {
     final nextState = AppointmentsModuleAppBarState(rangeLabel: rangeLabel);
     final currentState = ref.read(appointmentsModuleAppBarStateProvider);
@@ -522,6 +549,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       final restoredWeekdays = _decodeVisibleWeekdays(
         prefs.getStringList(_agendaWeekdaysKey),
       );
+      final restoredExpenseAgenda = prefs.getBool(
+        expenseAgendaUserPreferenceKey(widget.salonId),
+      );
       if (!mounted) {
         _isAgendaPreferencesReady = true;
         return;
@@ -564,13 +594,17 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
       final weekdaysChanged =
           shouldApplyWeekdays &&
           !setEqualsInt.equals(restoredWeekdays!, _visibleWeekdays);
+      final expenseAgendaChanged =
+          restoredExpenseAgenda != null &&
+          restoredExpenseAgenda != _showExpensesInAgendaForUser;
 
       if (modeChanged ||
           scopeChanged ||
           slotChanged ||
           layoutChanged ||
           staffChanged ||
-          weekdaysChanged) {
+          weekdaysChanged ||
+          expenseAgendaChanged) {
         setState(() {
           _rangeTransitionDirection = 0;
           _mode = nextMode;
@@ -585,6 +619,9 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
             _visibleWeekdays
               ..clear()
               ..addAll(restoredWeekdays!);
+          }
+          if (restoredExpenseAgenda != null) {
+            _showExpensesInAgendaForUser = restoredExpenseAgenda;
           }
           if (scopeChanged) {
             if (_scope == AppointmentCalendarScope.week) {
@@ -1698,6 +1735,21 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
     final rangeLabel = _buildRangeLabel(rangeStart, baseRangeEnd, _scope);
     _publishAppBarState(rangeLabel);
     final staffSelectionKey = _staffSelectionKey(selectedStaffIds);
+    final expenseSettings = data.expenseSettings.firstWhereOrNull(
+      (settings) => settings.salonId == effectiveSalonId,
+    );
+    final showExpenseIndicators =
+        _showExpensesInAgendaForUser &&
+        (expenseSettings?.showExpensesInAgenda ?? false);
+    final expenseCountsByDay =
+        showExpenseIndicators
+            ? _expenseCountsByDay(
+              expenses: data.expenses,
+              salonId: effectiveSalonId,
+              rangeStart: rangeStart,
+              rangeEnd: rangeEnd,
+            )
+            : const <DateTime, int>{};
     final theme = Theme.of(context);
     final moduleBackground =
         theme.brightness == Brightness.dark
@@ -1739,6 +1791,15 @@ class _AppointmentsModuleState extends ConsumerState<AppointmentsModule> {
                   selectedSalonId: effectiveSalonId,
                   visibleWeekdays: _visibleWeekdays,
                   lockedAppointmentReasons: lockedAppointmentReasons,
+                  expenseCountsByDay: expenseCountsByDay,
+                  onTapExpenseIndicator:
+                      (day) =>
+                          ref
+                              .read(adminDashboardIntentProvider.notifier)
+                              .state = AdminDashboardIntent(
+                            moduleId: 'expenses',
+                            payload: {'date': day},
+                          ),
                   anomalies: anomalies,
                   statusColor: (status) => _colorForStatus(context, status),
                   dayChecklists: dayChecklists,

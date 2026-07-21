@@ -118,6 +118,90 @@ service cloud.firestore {
       return currentUserRole() != null;
     }
 
+    function hasValidAppFeedbackPayload() {
+      return request.resource != null && request.resource.data != null &&
+          request.resource.data.keys().hasOnly([
+            'category',
+            'message',
+            'status',
+            'source',
+            'userId',
+            'userEmail',
+            'userRole',
+            'contextEntityId',
+            'platform',
+            'isWeb',
+            'appVersion',
+            'buildNumber',
+            'packageName',
+            'createdAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.keys().hasAll([
+            'category',
+            'message',
+            'status',
+            'source',
+            'userId',
+            'platform',
+            'isWeb',
+            'createdAt',
+            'updatedAt'
+          ]) &&
+          ['bug', 'suggestion', 'usability', 'performance', 'account', 'other']
+              .hasAny([request.resource.data.category]) &&
+          request.resource.data.message is string &&
+          request.resource.data.message.size() >= 8 &&
+          request.resource.data.message.size() <= 4000 &&
+          request.resource.data.status == 'new' &&
+          request.resource.data.source is string &&
+          request.resource.data.source.size() > 0 &&
+          request.resource.data.source.size() <= 80 &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.platform is string &&
+          request.resource.data.platform.size() > 0 &&
+          request.resource.data.platform.size() <= 24 &&
+          request.resource.data.isWeb is bool &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.updatedAt == request.time &&
+          (
+            !request.resource.data.keys().hasAny(['userEmail']) ||
+            request.resource.data.userEmail == null ||
+            (request.resource.data.userEmail is string &&
+                request.resource.data.userEmail.size() <= 320)
+          ) &&
+          (
+            !request.resource.data.keys().hasAny(['userRole']) ||
+            request.resource.data.userRole == null ||
+            (request.resource.data.userRole is string &&
+                request.resource.data.userRole.size() <= 32)
+          ) &&
+          (
+            !request.resource.data.keys().hasAny(['contextEntityId']) ||
+            request.resource.data.contextEntityId == null ||
+            (request.resource.data.contextEntityId is string &&
+                request.resource.data.contextEntityId.size() <= 128)
+          ) &&
+          (
+            !request.resource.data.keys().hasAny(['appVersion']) ||
+            request.resource.data.appVersion == null ||
+            (request.resource.data.appVersion is string &&
+                request.resource.data.appVersion.size() <= 32)
+          ) &&
+          (
+            !request.resource.data.keys().hasAny(['buildNumber']) ||
+            request.resource.data.buildNumber == null ||
+            (request.resource.data.buildNumber is string &&
+                request.resource.data.buildNumber.size() <= 32)
+          ) &&
+          (
+            !request.resource.data.keys().hasAny(['packageName']) ||
+            request.resource.data.packageName == null ||
+            (request.resource.data.packageName is string &&
+                request.resource.data.packageName.size() <= 128)
+          );
+    }
+
     function resourceSalonId() {
       return resource != null && resource.data != null && resource.data.salonId is string
           ? resource.data.salonId
@@ -692,6 +776,40 @@ service cloud.firestore {
               : resourceSalonId());
     }
 
+    match /expense_categories/{categoryId} {
+      allow read: if isSignedIn() && isAdmin() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() && isAdmin() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isSignedIn() && isAdmin() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() && isAdmin() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /expense_recurring_rules/{ruleId} {
+      allow read: if isSignedIn() && isAdmin() && canReadSalonDocument(resourceSalonId());
+      allow create, update, delete: if isSignedIn() && isAdmin() &&
+          canManageSalonDocument(request.resource != null && request.resource.data != null &&
+              request.resource.data.salonId is string
+              ? request.resource.data.salonId
+              : resourceSalonId());
+    }
+
+    match /expense_settings/{salonId} {
+      allow read: if isSignedIn() && isAdmin() && canReadSalonDocument(salonId);
+      allow create, update, delete: if isSignedIn() && isAdmin() &&
+          canManageSalonDocument(salonId) &&
+          request.resource.data.salonId == salonId;
+    }
+
     match /payment_tickets/{ticketId} {
       allow read: if isSignedIn() && (
         canManageSalonDocument(resourceSalonId()) ||
@@ -957,6 +1075,11 @@ service cloud.firestore {
     match /client_app_movements/{movementId} {
       allow read: if isSignedIn() && resourceSalonId() != null && canManageSalonDocument(resourceSalonId());
       allow create, update, delete: if false;
+    }
+
+    match /app_feedback/{feedbackId} {
+      allow create: if isSignedIn() && hasValidAppFeedbackPayload();
+      allow read, update, delete: if false;
     }
 
     match /{document=**} {

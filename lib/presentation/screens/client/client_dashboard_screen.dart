@@ -78,10 +78,108 @@ enum _ClientBadgeTarget {
   notifications,
 }
 
+enum _ClientWalkthroughTarget {
+  home,
+  agenda,
+  booking,
+  cart,
+  info,
+  notifications,
+  menu,
+}
+
+class _ClientWalkthroughStep {
+  const _ClientWalkthroughStep({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.target,
+    required this.tabIndex,
+    required this.icon,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final _ClientWalkthroughTarget target;
+  final int tabIndex;
+  final IconData icon;
+}
+
+const String _clientWalkthroughVersion = 'client_dashboard_v2';
+const List<_ClientWalkthroughStep>
+_clientWalkthroughSteps = <_ClientWalkthroughStep>[
+  _ClientWalkthroughStep(
+    id: 'home',
+    title: 'Home',
+    description:
+        'Qui trovi il riepilogo del salone, il prossimo appuntamento e le novità disponibili.',
+    target: _ClientWalkthroughTarget.home,
+    tabIndex: 0,
+    icon: Icons.home_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'booking',
+    title: 'Prenota',
+    description:
+        'Da questa sezione scegli servizi, giorno e orario per inviare una nuova prenotazione.',
+    target: _ClientWalkthroughTarget.booking,
+    tabIndex: 2,
+    icon: Icons.calendar_month_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'agenda',
+    title: 'Agenda',
+    description:
+        'Controlla i prossimi appuntamenti, lo storico e le azioni disponibili sulle prenotazioni.',
+    target: _ClientWalkthroughTarget.agenda,
+    tabIndex: 1,
+    icon: Icons.event_note_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'cart',
+    title: 'Carrello',
+    description:
+        'Qui ritrovi servizi e pacchetti selezionati prima di completare eventuali acquisti online.',
+    target: _ClientWalkthroughTarget.cart,
+    tabIndex: 3,
+    icon: Icons.shopping_bag_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'info',
+    title: 'Info salone',
+    description:
+        'Consulta dettagli del salone, indirizzo, contatti, orari e collegamenti utili.',
+    target: _ClientWalkthroughTarget.info,
+    tabIndex: 4,
+    icon: Icons.storefront_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'notifications',
+    title: 'Notifiche',
+    description:
+        'Apri gli aggiornamenti del salone: reminder, messaggi e comunicazioni importanti.',
+    target: _ClientWalkthroughTarget.notifications,
+    tabIndex: 0,
+    icon: Icons.notifications_rounded,
+  ),
+  _ClientWalkthroughStep(
+    id: 'menu',
+    title: 'Menu',
+    description:
+        'Nel menu trovi punti fedeltà, pacchetti, preventivi, fatturazione, foto e impostazioni.',
+    target: _ClientWalkthroughTarget.menu,
+    tabIndex: 0,
+    icon: Icons.menu_rounded,
+  ),
+];
+
 class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     with TickerProviderStateMixin {
   static const String _badgePreferencesKeyPrefix =
       'client_dashboard_acknowledged_badges';
+  static const String _walkthroughPreferencesKeyPrefix =
+      'client_dashboard_walkthrough';
   static const int _notificationsIntentIndex = -1;
   static const double _drawerStretchLimit = 72;
   static const SpringDescription _drawerSpring = SpringDescription(
@@ -95,13 +193,29 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   ProviderSubscription<ClientDashboardIntent?>? _intentSubscription;
   ProviderSubscription<SessionState>? _sessionSubscription;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey _walkthroughMenuKey = GlobalKey();
+  final GlobalKey _walkthroughNotificationsKey = GlobalKey();
+  final GlobalKey _walkthroughHomeKey = GlobalKey();
+  final GlobalKey _walkthroughAgendaKey = GlobalKey();
+  final GlobalKey _walkthroughBookingKey = GlobalKey();
+  final GlobalKey _walkthroughCartKey = GlobalKey();
+  final GlobalKey _walkthroughInfoKey = GlobalKey();
   int _currentTab = 0;
   int _bookingSheetSeed = 0;
   bool _pendingShowNotifications = false;
   final Set<String> _processingQuotePayments = <String>{};
   final Map<_ClientBadgeTarget, int> _acknowledgedBadgeCounts = {};
   SharedPreferences? _badgePreferences;
+  SharedPreferences? _walkthroughPreferences;
   String? _badgePreferencesUserId;
+  String? _lastAutoWalkthroughScope;
+  String? _activeWalkthroughPrefsKey;
+  String _activeWalkthroughSource = 'auto';
+  int _walkthroughStepIndex = 0;
+  bool _walkthroughRunning = false;
+  bool _walkthroughStarting = false;
+  OverlayEntry? _walkthroughOverlay;
+  final Set<int> _loggedWalkthroughSteps = <int>{};
   final Uuid _uuid = const Uuid();
 
   Future<SharedPreferences> _ensureBadgePreferences() async {
@@ -114,8 +228,25 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
     return resolved;
   }
 
+  Future<SharedPreferences> _ensureWalkthroughPreferences() async {
+    final cached = _walkthroughPreferences;
+    if (cached != null) {
+      return cached;
+    }
+    final resolved = await SharedPreferences.getInstance();
+    _walkthroughPreferences = resolved;
+    return resolved;
+  }
+
   String _badgePrefsKeyFor(String userId) {
     return '$_badgePreferencesKeyPrefix::$userId';
+  }
+
+  String _walkthroughPrefsKey({
+    required String clientId,
+    required String salonId,
+  }) {
+    return '$_walkthroughPreferencesKeyPrefix::$_clientWalkthroughVersion::$clientId::$salonId';
   }
 
   Future<void> _restoreAcknowledgedBadges({String? userId}) async {
@@ -268,6 +399,296 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
   void _acknowledgeBadge(_ClientBadgeTarget target, int currentCount) {
     _acknowledgedBadgeCounts[target] = currentCount;
     unawaited(_persistAcknowledgedBadges());
+  }
+
+  void _maybeQueueClientWalkthrough({
+    required Client client,
+    required String salonId,
+  }) {
+    final normalizedClientId = client.id.trim();
+    final normalizedSalonId = salonId.trim();
+    if (normalizedClientId.isEmpty || normalizedSalonId.isEmpty) {
+      return;
+    }
+    final scope = '$normalizedClientId::$normalizedSalonId';
+    if (_lastAutoWalkthroughScope == scope ||
+        _walkthroughRunning ||
+        _walkthroughStarting) {
+      return;
+    }
+    _lastAutoWalkthroughScope = scope;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(
+        _startClientWalkthroughIfNeeded(
+          clientId: normalizedClientId,
+          salonId: normalizedSalonId,
+          source: 'auto',
+          force: false,
+        ),
+      );
+    });
+  }
+
+  Future<void> _startClientWalkthroughIfNeeded({
+    required String clientId,
+    required String salonId,
+    required String source,
+    required bool force,
+  }) async {
+    if (!mounted || _walkthroughRunning || _walkthroughStarting) {
+      return;
+    }
+    _walkthroughStarting = true;
+    final prefsKey = _walkthroughPrefsKey(clientId: clientId, salonId: salonId);
+    try {
+      if (!force) {
+        final prefs = await _ensureWalkthroughPreferences();
+        if (prefs.getBool(prefsKey) ?? false) {
+          return;
+        }
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 260));
+      if (!mounted) {
+        return;
+      }
+      _startClientWalkthrough(prefsKey: prefsKey, source: source);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile avviare il walkthrough cliente: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      if (!_walkthroughRunning) {
+        _walkthroughStarting = false;
+      }
+    }
+  }
+
+  void _startClientWalkthrough({
+    required String prefsKey,
+    required String source,
+  }) {
+    if (!mounted || _walkthroughRunning || _clientWalkthroughSteps.isEmpty) {
+      return;
+    }
+    _walkthroughRunning = true;
+    _walkthroughStarting = false;
+    _activeWalkthroughPrefsKey = prefsKey;
+    _activeWalkthroughSource = source.trim().isEmpty ? 'manual' : source.trim();
+    _walkthroughStepIndex = 0;
+    _loggedWalkthroughSteps.clear();
+    unawaited(
+      ref
+          .read(appTelemetryServiceProvider)
+          .logOnboardingStarted(
+            source: _activeWalkthroughSource,
+            version: _clientWalkthroughVersion,
+          ),
+    );
+    _showClientWalkthroughStep(0);
+  }
+
+  void _showClientWalkthroughStep(int index) {
+    if (!mounted || !_walkthroughRunning) {
+      return;
+    }
+    if (index >= _clientWalkthroughSteps.length) {
+      _finishClientWalkthrough(skipped: false);
+      return;
+    }
+    final normalizedIndex = index < 0 ? 0 : index;
+    final step = _clientWalkthroughSteps[normalizedIndex];
+    _walkthroughStepIndex = normalizedIndex;
+    if (_currentTab != step.tabIndex) {
+      setState(() => _currentTab = step.tabIndex);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 90), () {
+            if (!mounted ||
+                !_walkthroughRunning ||
+                _walkthroughStepIndex != normalizedIndex) {
+              return;
+            }
+            _refreshClientWalkthroughOverlay();
+          }),
+        );
+      });
+      return;
+    }
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 60), () {
+        if (!mounted ||
+            !_walkthroughRunning ||
+            _walkthroughStepIndex != normalizedIndex) {
+          return;
+        }
+        _refreshClientWalkthroughOverlay();
+      }),
+    );
+  }
+
+  void _refreshClientWalkthroughOverlay({int attempt = 0}) {
+    if (!mounted || !_walkthroughRunning) {
+      return;
+    }
+    final step = _clientWalkthroughSteps[_walkthroughStepIndex];
+    final targetRect = _rectForKey(_keyForWalkthroughTarget(step.target));
+    if (targetRect == null) {
+      if (attempt < 6) {
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 80), () {
+            _refreshClientWalkthroughOverlay(attempt: attempt + 1);
+          }),
+        );
+        return;
+      }
+      _showClientWalkthroughStep(_walkthroughStepIndex + 1);
+      return;
+    }
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      _finishClientWalkthrough(skipped: true);
+      return;
+    }
+
+    _walkthroughOverlay?.remove();
+    _walkthroughOverlay = OverlayEntry(
+      builder:
+          (overlayContext) => _ClientWalkthroughOverlay(
+            step: step,
+            stepIndex: _walkthroughStepIndex,
+            totalSteps: _clientWalkthroughSteps.length,
+            targetRect: targetRect,
+            onBack:
+                _walkthroughStepIndex == 0
+                    ? null
+                    : () =>
+                        _showClientWalkthroughStep(_walkthroughStepIndex - 1),
+            onNext: () {
+              if (_walkthroughStepIndex >= _clientWalkthroughSteps.length - 1) {
+                _finishClientWalkthrough(skipped: false);
+                return;
+              }
+              _showClientWalkthroughStep(_walkthroughStepIndex + 1);
+            },
+            onSkip: () => _finishClientWalkthrough(skipped: true),
+          ),
+    );
+    overlay.insert(_walkthroughOverlay!);
+    _logClientWalkthroughStepViewed(_walkthroughStepIndex);
+  }
+
+  Rect? _rectForKey(GlobalKey key) {
+    final targetContext = key.currentContext;
+    final renderObject = targetContext?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize) {
+      return null;
+    }
+    final topLeft = renderObject.localToGlobal(Offset.zero);
+    return topLeft & renderObject.size;
+  }
+
+  GlobalKey _keyForWalkthroughTarget(_ClientWalkthroughTarget target) {
+    return switch (target) {
+      _ClientWalkthroughTarget.home => _walkthroughHomeKey,
+      _ClientWalkthroughTarget.agenda => _walkthroughAgendaKey,
+      _ClientWalkthroughTarget.booking => _walkthroughBookingKey,
+      _ClientWalkthroughTarget.cart => _walkthroughCartKey,
+      _ClientWalkthroughTarget.info => _walkthroughInfoKey,
+      _ClientWalkthroughTarget.notifications => _walkthroughNotificationsKey,
+      _ClientWalkthroughTarget.menu => _walkthroughMenuKey,
+    };
+  }
+
+  Widget _walkthroughNavigationTarget({
+    required _ClientWalkthroughTarget target,
+    required bool selected,
+    required Widget child,
+  }) {
+    final targetTab =
+        _clientWalkthroughSteps
+            .firstWhere((step) => step.target == target)
+            .tabIndex;
+    final isTargetVisible = _currentTab == targetTab;
+    if (isTargetVisible != selected) {
+      return child;
+    }
+    return KeyedSubtree(key: _keyForWalkthroughTarget(target), child: child);
+  }
+
+  void _logClientWalkthroughStepViewed(int index) {
+    if (!_loggedWalkthroughSteps.add(index)) {
+      return;
+    }
+    final step = _clientWalkthroughSteps[index];
+    unawaited(
+      ref
+          .read(appTelemetryServiceProvider)
+          .logOnboardingStepViewed(
+            source: _activeWalkthroughSource,
+            version: _clientWalkthroughVersion,
+            stepId: step.id,
+            stepIndex: index + 1,
+          ),
+    );
+  }
+
+  void _finishClientWalkthrough({required bool skipped}) {
+    if (!_walkthroughRunning && !_walkthroughStarting) {
+      return;
+    }
+    final currentIndex =
+        _walkthroughStepIndex
+            .clamp(0, _clientWalkthroughSteps.length - 1)
+            .toInt();
+    final currentStep = _clientWalkthroughSteps[currentIndex];
+    final source = _activeWalkthroughSource;
+    final prefsKey = _activeWalkthroughPrefsKey;
+    _walkthroughOverlay?.remove();
+    _walkthroughOverlay = null;
+    _walkthroughRunning = false;
+    _walkthroughStarting = false;
+    _activeWalkthroughPrefsKey = null;
+    _loggedWalkthroughSteps.clear();
+
+    if (prefsKey != null) {
+      unawaited(_markClientWalkthroughSeen(prefsKey));
+    }
+    final telemetry = ref.read(appTelemetryServiceProvider);
+    if (skipped) {
+      unawaited(
+        telemetry.logOnboardingSkipped(
+          source: source,
+          version: _clientWalkthroughVersion,
+          stepId: currentStep.id,
+          stepIndex: currentIndex + 1,
+        ),
+      );
+    } else {
+      unawaited(
+        telemetry.logOnboardingCompleted(
+          source: source,
+          version: _clientWalkthroughVersion,
+        ),
+      );
+    }
+  }
+
+  Future<void> _markClientWalkthroughSeen(String prefsKey) async {
+    try {
+      final prefs = await _ensureWalkthroughPreferences();
+      await prefs.setBool(prefsKey, true);
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Impossibile salvare il walkthrough cliente: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
   }
 
   double _clampStretch(double value) {
@@ -546,6 +967,8 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
   @override
   void dispose() {
+    _walkthroughOverlay?.remove();
+    _walkthroughOverlay = null;
     _foregroundSub?.cancel();
     _intentSubscription?.close();
     _sessionSubscription?.close();
@@ -620,6 +1043,43 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
 
   Future<void> _handleDashboardIntent(ClientDashboardIntent intent) async {
     final type = intent.payload['type']?.toString();
+    if (type == 'client_walkthrough') {
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+      if (!mounted) {
+        return;
+      }
+      final data = ref.read(appDataProvider);
+      final session = ref.read(sessionControllerProvider);
+      final client =
+          data.clients.firstWhereOrNull(
+            (candidate) => candidate.id == session.userId,
+          ) ??
+          data.clients.firstWhereOrNull(
+            (candidate) => candidate.id == session.user?.clientId,
+          ) ??
+          (data.clients.isNotEmpty ? data.clients.first : null);
+      final salonId =
+          (session.salonId?.trim().isNotEmpty ?? false)
+              ? session.salonId!.trim()
+              : client?.salonId.trim();
+      if (client == null || salonId == null || salonId.isEmpty) {
+        ScaffoldMessenger.of(context).showAppSnackBar(
+          const SnackBar(
+            content: Text(
+              'Walkthrough disponibile dopo il caricamento del profilo cliente.',
+            ),
+          ),
+        );
+        return;
+      }
+      await _startClientWalkthroughIfNeeded(
+        clientId: client.id,
+        salonId: salonId,
+        source: intent.payload['source']?.toString() ?? 'manual',
+        force: true,
+      );
+      return;
+    }
     if (type != 'last_minute_slot') {
       return;
     }
@@ -2377,6 +2837,11 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         shouldShowBillingBadge ||
         shouldShowPhotosBadge;
 
+    _maybeQueueClientWalkthrough(
+      client: currentClient,
+      salonId: effectiveSalonId,
+    );
+
     final themedData = ClientTheme.resolve(Theme.of(context));
     return Theme(
       data: themedData,
@@ -2440,6 +2905,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             key: _scaffoldKey,
             appBar: AppBar(
               leading: IconButton(
+                key: _walkthroughMenuKey,
                 tooltip: 'Menu',
                 onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                 icon:
@@ -2453,6 +2919,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               title: Text('Ciao ${currentClient.firstName}'),
               actions: [
                 IconButton(
+                  key: _walkthroughNotificationsKey,
                   tooltip: 'Notifiche',
                   onPressed: () {
                     unawaited(
@@ -2677,83 +3144,123 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
               },
               destinations: [
                 NavigationDestination(
-                  icon: _navigationIcon(context, icon: Icons.home_outlined),
-                  selectedIcon: _navigationIcon(
-                    context,
-                    icon: Icons.home,
+                  icon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.home,
+                    selected: false,
+                    child: _navigationIcon(context, icon: Icons.home_outlined),
+                  ),
+                  selectedIcon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.home,
                     selected: true,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.home,
+                      selected: true,
+                    ),
                   ),
                   label: 'Home',
                 ),
                 NavigationDestination(
-                  icon: _wrapWithBadge(
-                    backgroundColor: navigationBadgeBackground,
-                    textColor: navigationBadgeTextColor,
-                    icon: _navigationIcon(
-                      context,
-                      icon: Icons.event_note_outlined,
+                  icon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.agenda,
+                    selected: false,
+                    child: _wrapWithBadge(
+                      backgroundColor: navigationBadgeBackground,
+                      textColor: navigationBadgeTextColor,
+                      icon: _navigationIcon(
+                        context,
+                        icon: Icons.event_note_outlined,
+                      ),
+                      badgeCount: agendaBadgeDelta,
+                      showBadge: shouldShowAgendaBadge,
                     ),
-                    badgeCount: agendaBadgeDelta,
-                    showBadge: shouldShowAgendaBadge,
                   ),
-                  selectedIcon: _wrapWithBadge(
-                    backgroundColor: navigationBadgeBackground,
-                    textColor: navigationBadgeTextColor,
-                    icon: _navigationIcon(
-                      context,
-                      icon: Icons.event_note,
-                      selected: true,
+                  selectedIcon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.agenda,
+                    selected: true,
+                    child: _wrapWithBadge(
+                      backgroundColor: navigationBadgeBackground,
+                      textColor: navigationBadgeTextColor,
+                      icon: _navigationIcon(
+                        context,
+                        icon: Icons.event_note,
+                        selected: true,
+                      ),
+                      badgeCount: agendaBadgeDelta,
+                      showBadge: shouldShowAgendaBadge,
                     ),
-                    badgeCount: agendaBadgeDelta,
-                    showBadge: shouldShowAgendaBadge,
                   ),
                   label: 'Agenda',
                 ),
                 NavigationDestination(
-                  icon: _navigationIcon(
-                    context,
-                    icon: Icons.calendar_month_outlined,
+                  icon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.booking,
+                    selected: false,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.calendar_month_outlined,
+                    ),
                   ),
-                  selectedIcon: _navigationIcon(
-                    context,
-                    icon: Icons.calendar_month,
+                  selectedIcon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.booking,
                     selected: true,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.calendar_month,
+                      selected: true,
+                    ),
                   ),
                   label: 'Prenota',
                 ),
                 NavigationDestination(
-                  icon: Badge.count(
-                    count: cartBadgeCount,
-                    isLabelVisible: cartBadgeCount > 0,
-                    backgroundColor: navigationBadgeBackground,
-                    textColor: navigationBadgeTextColor,
-                    child: _navigationIcon(
-                      context,
-                      icon: Icons.shopping_bag_outlined,
+                  icon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.cart,
+                    selected: false,
+                    child: Badge.count(
+                      count: cartBadgeCount,
+                      isLabelVisible: cartBadgeCount > 0,
+                      backgroundColor: navigationBadgeBackground,
+                      textColor: navigationBadgeTextColor,
+                      child: _navigationIcon(
+                        context,
+                        icon: Icons.shopping_bag_outlined,
+                      ),
                     ),
                   ),
-                  selectedIcon: Badge.count(
-                    count: cartBadgeCount,
-                    isLabelVisible: cartBadgeCount > 0,
-                    backgroundColor: navigationBadgeBackground,
-                    textColor: navigationBadgeTextColor,
-                    child: _navigationIcon(
-                      context,
-                      icon: Icons.shopping_bag,
-                      selected: true,
+                  selectedIcon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.cart,
+                    selected: true,
+                    child: Badge.count(
+                      count: cartBadgeCount,
+                      isLabelVisible: cartBadgeCount > 0,
+                      backgroundColor: navigationBadgeBackground,
+                      textColor: navigationBadgeTextColor,
+                      child: _navigationIcon(
+                        context,
+                        icon: Icons.shopping_bag,
+                        selected: true,
+                      ),
                     ),
                   ),
                   label: 'Carrello',
                 ),
                 NavigationDestination(
-                  icon: _navigationIcon(
-                    context,
-                    icon: Icons.storefront_outlined,
+                  icon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.info,
+                    selected: false,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.storefront_outlined,
+                    ),
                   ),
-                  selectedIcon: _navigationIcon(
-                    context,
-                    icon: Icons.storefront,
+                  selectedIcon: _walkthroughNavigationTarget(
+                    target: _ClientWalkthroughTarget.info,
                     selected: true,
+                    child: _navigationIcon(
+                      context,
+                      icon: Icons.storefront,
+                      selected: true,
+                    ),
                   ),
                   label: 'Info',
                 ),
@@ -5192,6 +5699,222 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         );
       },
     );
+  }
+}
+
+class _ClientWalkthroughOverlay extends StatelessWidget {
+  const _ClientWalkthroughOverlay({
+    required this.step,
+    required this.stepIndex,
+    required this.totalSteps,
+    required this.targetRect,
+    required this.onNext,
+    required this.onSkip,
+    this.onBack,
+  });
+
+  final _ClientWalkthroughStep step;
+  final int stepIndex;
+  final int totalSteps;
+  final Rect targetRect;
+  final VoidCallback onNext;
+  final VoidCallback onSkip;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    const horizontalMargin = 16.0;
+    const cardGap = 22.0;
+    final cardWidth =
+        size.width < 420 ? size.width - horizontalMargin * 2 : 368.0;
+    final rawMaxLeft = size.width - cardWidth - horizontalMargin;
+    final maxLeft =
+        rawMaxLeft < horizontalMargin ? horizontalMargin : rawMaxLeft;
+    final left =
+        (targetRect.center.dx - cardWidth / 2)
+            .clamp(horizontalMargin, maxLeft)
+            .toDouble();
+    final highlightedRect = targetRect.inflate(8);
+    final safeTop = media.padding.top + 12;
+    final safeBottom = media.padding.bottom + 12;
+    final availableAbove = highlightedRect.top - safeTop - cardGap;
+    final availableBelow =
+        size.height - safeBottom - highlightedRect.bottom - cardGap;
+    final placeBelow =
+        availableBelow >= 220 || availableBelow >= availableAbove;
+    final availableHeight = placeBelow ? availableBelow : availableAbove;
+    final fallbackMaxHeight = size.height - media.padding.vertical - 24;
+    final maxCardHeight =
+        availableHeight > 180 ? availableHeight : fallbackMaxHeight;
+    final isLastStep = stepIndex >= totalSteps - 1;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onNext,
+              child: CustomPaint(
+                painter: _ClientWalkthroughScrimPainter(
+                  targetRect: highlightedRect,
+                  color: Colors.black.withValues(alpha: 0.68),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: highlightedRect.left,
+            top: highlightedRect.top,
+            width: highlightedRect.width,
+            height: highlightedRect.height,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: scheme.primary, width: 2.4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: scheme.primary.withValues(alpha: 0.32),
+                      blurRadius: 22,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: left,
+            top: placeBelow ? highlightedRect.bottom + cardGap : null,
+            bottom:
+                placeBelow ? null : size.height - highlightedRect.top + cardGap,
+            width: cardWidth,
+            child: SafeArea(
+              minimum: EdgeInsets.zero,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxCardHeight),
+                child: Material(
+                  color: scheme.surface,
+                  elevation: 14,
+                  shadowColor: Colors.black.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(18),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: scheme.primaryContainer,
+                              foregroundColor: scheme.onPrimaryContainer,
+                              child: Icon(step.icon, size: 22),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    step.title,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.w700),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${stepIndex + 1} di $totalSteps',
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          step.description,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            minHeight: 5,
+                            value: (stepIndex + 1) / totalSteps,
+                            backgroundColor: scheme.surfaceContainerHighest,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: onSkip,
+                              child: const Text('Salta'),
+                            ),
+                            const Spacer(),
+                            if (onBack != null)
+                              TextButton(
+                                onPressed: onBack,
+                                child: const Text('Indietro'),
+                              ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: onNext,
+                              child: Text(isLastStep ? 'Fine' : 'Avanti'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClientWalkthroughScrimPainter extends CustomPainter {
+  const _ClientWalkthroughScrimPainter({
+    required this.targetRect,
+    required this.color,
+  });
+
+  final Rect targetRect;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path =
+        Path()
+          ..fillType = PathFillType.evenOdd
+          ..addRect(Offset.zero & size)
+          ..addRRect(
+            RRect.fromRectAndRadius(targetRect, const Radius.circular(22)),
+          );
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_ClientWalkthroughScrimPainter oldDelegate) {
+    return oldDelegate.targetRect != targetRect || oldDelegate.color != color;
   }
 }
 

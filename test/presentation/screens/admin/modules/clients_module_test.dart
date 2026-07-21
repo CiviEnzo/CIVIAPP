@@ -52,6 +52,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('hides primary search tabs after selecting a client', (
+    tester,
+  ) async {
+    await _pumpClientsModule(
+      tester,
+      state: _buildState(
+        clients: <Client>[
+          _buildClient(
+            id: 'client-sara',
+            firstName: 'Sara',
+            lastName: 'Verdi',
+            phone: '3331111111',
+            clientNumber: '101',
+          ),
+        ],
+      ),
+      size: const Size(1800, 1200),
+    );
+
+    expect(find.text('Ricerca'), findsOneWidget);
+    expect(find.text('Ricerca avanzata'), findsOneWidget);
+    expect(find.text('Richieste'), findsOneWidget);
+    expect(find.text('Ultimi'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('clients_search_general_field')),
+      'Sara',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sara Verdi'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ricerca'), findsNothing);
+    expect(find.text('Ricerca avanzata'), findsNothing);
+    expect(find.text('Richieste'), findsNothing);
+    expect(find.text('Ultimi'), findsNothing);
+    expect(find.text('Sara Verdi'), findsWidgets);
+    expect(find.text('Scheda'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('uses real app activity for client badge and app KPI', (
     tester,
   ) async {

@@ -93,7 +93,7 @@ void main() {
       salonId: 'salon-1',
     );
 
-    expect(find.text(currency.format(300)), findsOneWidget);
+    expect(find.text(currency.format(300)), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('reports_filters_toggle')));
     await tester.pumpAndSettle();

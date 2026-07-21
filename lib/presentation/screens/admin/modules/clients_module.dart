@@ -892,6 +892,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     final Widget searchTabContent =
         showDetailOnly
             ? ListView(
+              key: ValueKey('clients_detail_scroll_${selectedClient.id}'),
               padding: pagePadding,
               children: [_buildSelectedClientSection(client: selectedClient)],
             )
@@ -1267,6 +1268,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
 
     final latestTab = ListView(padding: pagePadding, children: latestChildren);
+    final showPrimaryNavigation = !showDetailOnly;
 
     return DefaultTabController(
       length: 4,
@@ -1297,76 +1299,85 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                   },
                 ),
               ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  pagePadding.left,
-                  0,
-                  pagePadding.right,
-                  12,
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surface,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: theme.colorScheme.outlineVariant),
+              if (showPrimaryNavigation)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    pagePadding.left,
+                    0,
+                    pagePadding.right,
+                    12,
                   ),
-                  child: TabBar(
-                    isScrollable: true,
-                    indicator: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(12),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
                     ),
-                    indicatorSize: TabBarIndicatorSize.tab,
-                    labelColor: theme.colorScheme.onPrimaryContainer,
-                    unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                    dividerColor: Colors.transparent,
-                    tabs: const [
-                      Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
-                      Tab(
-                        icon: Icon(Icons.filter_alt_rounded),
-                        text: 'Ricerca avanzata',
+                    child: TabBar(
+                      isScrollable: true,
+                      indicator: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      Tab(
-                        icon: Icon(Icons.how_to_reg_outlined),
-                        text: 'Richieste',
-                      ),
-                      Tab(icon: Icon(Icons.fiber_new_rounded), text: 'Ultimi'),
-                    ],
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      labelColor: theme.colorScheme.onPrimaryContainer,
+                      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                      dividerColor: Colors.transparent,
+                      tabs: const [
+                        Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
+                        Tab(
+                          icon: Icon(Icons.filter_alt_rounded),
+                          text: 'Ricerca avanzata',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.how_to_reg_outlined),
+                          text: 'Richieste',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.fiber_new_rounded),
+                          text: 'Ultimi',
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
               Expanded(
-                child: TabBarView(
-                  children: [
-                    searchTabContent,
-                    AdvancedSearchTab(
-                      salonId: widget.salonId,
-                      onCreateClient:
-                          () => _openClientForm(
-                            salons: salons,
-                            clients: data.clients,
-                          ),
-                      onImportClients:
-                          () => _openImport(
-                            context,
-                            ref,
-                            salons: salons,
-                            clients: data.clients,
-                            defaultSalonId: widget.salonId,
-                          ),
-                      onEditClient:
-                          (client) => _openClientForm(
-                            salons: salons,
-                            clients: data.clients,
-                            existing: client,
-                          ),
-                      onSendInvite: _sendAccessLink,
-                      isSendingInvite: _isSending,
-                    ),
-                    requestsTab,
-                    latestTab,
-                  ],
-                ),
+                child:
+                    showDetailOnly
+                        ? searchTabContent
+                        : TabBarView(
+                          children: [
+                            searchTabContent,
+                            AdvancedSearchTab(
+                              salonId: widget.salonId,
+                              onCreateClient:
+                                  () => _openClientForm(
+                                    salons: salons,
+                                    clients: data.clients,
+                                  ),
+                              onImportClients:
+                                  () => _openImport(
+                                    context,
+                                    ref,
+                                    salons: salons,
+                                    clients: data.clients,
+                                    defaultSalonId: widget.salonId,
+                                  ),
+                              onEditClient:
+                                  (client) => _openClientForm(
+                                    salons: salons,
+                                    clients: data.clients,
+                                    existing: client,
+                                  ),
+                              onSendInvite: _sendAccessLink,
+                              isSendingInvite: _isSending,
+                            ),
+                            requestsTab,
+                            latestTab,
+                          ],
+                        ),
               ),
             ],
           ),

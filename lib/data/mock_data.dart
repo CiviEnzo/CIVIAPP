@@ -7,6 +7,7 @@ import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
 import 'package:you_book/domain/entities/message_template.dart';
@@ -941,7 +942,8 @@ class MockData {
       id: 'note-client-001-1',
       salonId: 'salon-001',
       clientId: 'client-001',
-      text: 'Preferisce gli appuntamenti al mattino e richiede sempre cabine silenziose.',
+      text:
+          'Preferisce gli appuntamenti al mattino e richiede sempre cabine silenziose.',
       createdAt: _now.subtract(const Duration(days: 2, hours: 3)),
       createdById: 'staff-001',
       createdByRole: UserRole.staff,
@@ -1542,6 +1544,128 @@ class MockData {
           recordedBy: 'staff-003',
         ),
       ],
+    ),
+  ];
+
+  static final expenseCategories = <ExpenseCategory>[
+    ExpenseCategory(
+      id: 'expense-cat-rent',
+      salonId: 'salon-001',
+      name: 'Affitto',
+      reportGroup: ExpenseReportGroup.fixedCosts,
+      color: 0xFF7C3AED,
+      sortOrder: 10,
+      monthlyBudget: 1200,
+      defaultPaymentMethod: PaymentMethod.transfer,
+      createdAt: _now.subtract(const Duration(days: 40)),
+    ),
+    ExpenseCategory(
+      id: 'expense-cat-supplies',
+      salonId: 'salon-001',
+      name: 'Forniture',
+      reportGroup: ExpenseReportGroup.inventory,
+      color: 0xFF0E7C7B,
+      sortOrder: 20,
+      monthlyBudget: 500,
+      defaultPaymentMethod: PaymentMethod.pos,
+      createdAt: _now.subtract(const Duration(days: 35)),
+    ),
+    ExpenseCategory(
+      id: 'expense-cat-marketing',
+      salonId: 'salon-001',
+      name: 'Marketing',
+      reportGroup: ExpenseReportGroup.marketing,
+      color: 0xFFE57A44,
+      sortOrder: 30,
+      defaultPaymentMethod: PaymentMethod.transfer,
+      createdAt: _now.subtract(const Duration(days: 20)),
+    ),
+  ];
+
+  static final expenseRecurringRules = <ExpenseRecurringRule>[
+    ExpenseRecurringRule(
+      id: 'expense-rule-rent-001',
+      salonId: 'salon-001',
+      categoryId: 'expense-cat-rent',
+      title: 'Affitto locale',
+      supplierName: 'Immobiliare Rossi',
+      totalAmount: 1200,
+      frequency: ExpenseRecurrenceFrequency.monthly,
+      startDate: DateTime(_now.year, _now.month, 1),
+      dueDay: 5,
+      defaultPaymentMethod: PaymentMethod.transfer,
+      notes: 'Canone mensile sede Milano',
+      createdAt: _now.subtract(const Duration(days: 30)),
+    ),
+  ];
+
+  static final expenses = <Expense>[
+    Expense(
+      id: 'expense-001',
+      salonId: 'salon-001',
+      categoryId: 'expense-cat-rent',
+      title: 'Affitto mese corrente',
+      supplierName: 'Immobiliare Rossi',
+      totalAmount: 1200,
+      competenceDate: DateTime(_now.year, _now.month, 1),
+      dueDate: DateTime(_now.year, _now.month, 5),
+      status: ExpenseStatus.partial,
+      payments: [
+        ExpensePayment(
+          id: 'expense-001-pay-001',
+          amount: 600,
+          date: DateTime(_now.year, _now.month, 5),
+          paymentMethod: PaymentMethod.transfer,
+          recordedBy: 'staff-001',
+          note: 'Acconto affitto',
+        ),
+      ],
+      isRecurring: true,
+      recurrenceRuleId: 'expense-rule-rent-001',
+      occurrenceDate: DateTime(_now.year, _now.month, 5),
+      createdAt: _now.subtract(const Duration(days: 12)),
+    ),
+    Expense(
+      id: 'expense-002',
+      salonId: 'salon-001',
+      categoryId: 'expense-cat-supplies',
+      title: 'Rifornimento oli massaggi',
+      supplierName: 'Beauty Supply',
+      totalAmount: 185,
+      competenceDate: _now.subtract(const Duration(days: 2)),
+      dueDate: _now.subtract(const Duration(days: 1)),
+      status: ExpenseStatus.paid,
+      payments: [
+        ExpensePayment(
+          id: 'expense-002-pay-001',
+          amount: 185,
+          date: _now.subtract(const Duration(days: 1)),
+          paymentMethod: PaymentMethod.pos,
+          recordedBy: 'staff-001',
+        ),
+      ],
+      createdAt: _now.subtract(const Duration(days: 2)),
+    ),
+    Expense(
+      id: 'expense-003',
+      salonId: 'salon-001',
+      categoryId: 'expense-cat-marketing',
+      title: 'Campagna social weekend',
+      supplierName: 'Meta Ads',
+      totalAmount: 240,
+      competenceDate: _now.add(const Duration(days: 5)),
+      dueDate: _now.add(const Duration(days: 7)),
+      status: ExpenseStatus.toPay,
+      createdAt: _now.subtract(const Duration(days: 1)),
+    ),
+  ];
+
+  static final expenseSettings = <ExpenseSettings>[
+    ExpenseSettings(
+      salonId: 'salon-001',
+      showExpensesInAgenda: true,
+      upcomingWarningDays: 7,
+      updatedAt: _now.subtract(const Duration(days: 1)),
     ),
   ];
 

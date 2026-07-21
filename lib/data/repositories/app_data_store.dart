@@ -19,6 +19,7 @@ import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
 import 'package:you_book/domain/entities/client_import.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/last_minute_notification.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
@@ -95,6 +96,12 @@ class AppDataStore extends StateNotifier<AppDataState> {
                ),
                quotes: List.unmodifiable(MockData.quotes),
                paymentTickets: List.unmodifiable(MockData.paymentTickets),
+               expenseCategories: List.unmodifiable(MockData.expenseCategories),
+               expenses: List.unmodifiable(MockData.expenses),
+               expenseRecurringRules: List.unmodifiable(
+                 MockData.expenseRecurringRules,
+               ),
+               expenseSettings: List.unmodifiable(MockData.expenseSettings),
                inventoryItems: List.unmodifiable(MockData.inventoryItems),
                sales: List.unmodifiable(MockData.sales),
                cashFlowEntries: List.unmodifiable(MockData.cashFlowEntries),
@@ -572,6 +579,58 @@ class AppDataStore extends StateNotifier<AppDataState> {
           onData: (items) => state = state.copyWith(paymentTickets: items),
         ),
       );
+
+      if (role == UserRole.admin) {
+        addAll(
+          _listenCollectionBySalonIds<ExpenseCategory>(
+            firestore: firestore,
+            collectionPath: 'expense_categories',
+            salonIds: salonIds,
+            fromDoc: expenseCategoryFromDoc,
+            onData:
+                (items) =>
+                    state = state.copyWith(
+                      expenseCategories: _sortExpenseCategories(items),
+                    ),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<Expense>(
+            firestore: firestore,
+            collectionPath: 'expenses',
+            salonIds: salonIds,
+            fromDoc: expenseFromDoc,
+            onData: (items) => state = state.copyWith(expenses: items),
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<ExpenseRecurringRule>(
+            firestore: firestore,
+            collectionPath: 'expense_recurring_rules',
+            salonIds: salonIds,
+            fromDoc: expenseRecurringRuleFromDoc,
+            onData: (items) {
+              final sorted =
+                  items.toList()..sort((a, b) => a.title.compareTo(b.title));
+              state = state.copyWith(
+                expenseRecurringRules: List.unmodifiable(sorted),
+              );
+            },
+          ),
+        );
+
+        addAll(
+          _listenCollectionBySalonIds<ExpenseSettings>(
+            firestore: firestore,
+            collectionPath: 'expense_settings',
+            salonIds: salonIds,
+            fromDoc: expenseSettingsFromDoc,
+            onData: (items) => state = state.copyWith(expenseSettings: items),
+          ),
+        );
+      }
 
       addAll(
         _listenCollectionBySalonIds<CashFlowEntry>(
@@ -2209,6 +2268,25 @@ class AppDataStore extends StateNotifier<AppDataState> {
     );
     await _deleteCollectionWhere('inventory', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere('sales', 'salonId', salonId, batch: batch);
+    await _deleteCollectionWhere(
+      'expense_categories',
+      'salonId',
+      salonId,
+      batch: batch,
+    );
+    await _deleteCollectionWhere('expenses', 'salonId', salonId, batch: batch);
+    await _deleteCollectionWhere(
+      'expense_recurring_rules',
+      'salonId',
+      salonId,
+      batch: batch,
+    );
+    await _deleteCollectionWhere(
+      'expense_settings',
+      'salonId',
+      salonId,
+      batch: batch,
+    );
     await _deleteCollectionWhere('quotes', 'salonId', salonId, batch: batch);
     await _deleteCollectionWhere(
       'cash_flows',
@@ -5904,6 +5982,168 @@ class AppDataStore extends StateNotifier<AppDataState> {
     await upsertPaymentTicket(updated);
   }
 
+  Future<void> upsertExpenseCategory(ExpenseCategory category) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(expenseCategories: [category]);
+      return;
+    }
+    await firestore
+        .collection('expense_categories')
+        .doc(category.id)
+        .set(expenseCategoryToMap(category));
+    _upsertLocal(expenseCategories: [category]);
+  }
+
+  Future<void> upsertExpense(Expense expense) async {
+    final normalized = expense.copyWith(status: expense.resolvedStatus);
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(expenses: [normalized]);
+      return;
+    }
+    await firestore
+        .collection('expenses')
+        .doc(normalized.id)
+        .set(expenseToMap(normalized));
+    _upsertLocal(expenses: [normalized]);
+  }
+
+  Future<void> upsertExpenses(List<Expense> expenses) async {
+    if (expenses.isEmpty) {
+      return;
+    }
+    final normalized = expenses
+        .map((expense) => expense.copyWith(status: expense.resolvedStatus))
+        .toList(growable: false);
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(expenses: normalized);
+      return;
+    }
+    var index = 0;
+    while (index < normalized.length) {
+      final batch = firestore.batch();
+      for (final expense in normalized.skip(index).take(_firestoreChunkSize)) {
+        batch.set(
+          firestore.collection('expenses').doc(expense.id),
+          expenseToMap(expense),
+        );
+      }
+      await batch.commit();
+      index += _firestoreChunkSize;
+    }
+    _upsertLocal(expenses: normalized);
+  }
+
+  Future<void> softDeleteExpense(
+    String expenseId, {
+    String? reason,
+    bool cancel = false,
+  }) async {
+    final expense = state.expenses.firstWhereOrNull(
+      (item) => item.id == expenseId,
+    );
+    if (expense == null) {
+      return;
+    }
+    final now = DateTime.now();
+    final updated = expense.copyWith(
+      status: cancel ? ExpenseStatus.cancelled : expense.status,
+      deletedAt: now,
+      deletedBy: _currentUser?.uid,
+      deleteReason: reason,
+      updatedAt: now,
+      updatedBy: _currentUser?.uid,
+    );
+    await upsertExpense(updated);
+  }
+
+  Future<void> upsertExpenseRecurringRule(
+    ExpenseRecurringRule rule, {
+    bool generateOccurrences = true,
+  }) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(expenseRecurringRules: [rule]);
+    } else {
+      await firestore
+          .collection('expense_recurring_rules')
+          .doc(rule.id)
+          .set(expenseRecurringRuleToMap(rule));
+      _upsertLocal(expenseRecurringRules: [rule]);
+    }
+
+    if (!generateOccurrences || rule.isCancelled) {
+      return;
+    }
+    final generated = _generateRecurringExpenses(rule);
+    if (generated.isNotEmpty) {
+      await upsertExpenses(generated);
+    }
+  }
+
+  Future<void> cancelExpenseRecurringRule(
+    String ruleId, {
+    bool deleteFutureOccurrences = false,
+  }) async {
+    final rule = state.expenseRecurringRules.firstWhereOrNull(
+      (item) => item.id == ruleId,
+    );
+    if (rule == null) {
+      return;
+    }
+    final now = DateTime.now();
+    final updated = rule.copyWith(
+      isActive: false,
+      cancelledAt: now,
+      cancelledBy: _currentUser?.uid,
+      updatedAt: now,
+      updatedBy: _currentUser?.uid,
+    );
+    await upsertExpenseRecurringRule(updated, generateOccurrences: false);
+    if (!deleteFutureOccurrences) {
+      return;
+    }
+    final today = DateTime(now.year, now.month, now.day);
+    final futures = state.expenses
+        .where((expense) {
+          if (expense.recurrenceRuleId != ruleId || expense.isDeleted) {
+            return false;
+          }
+          if (expense.payments.isNotEmpty) {
+            return false;
+          }
+          final occurrence = expense.occurrenceDate ?? expense.dueDate;
+          return !DateTime(
+            occurrence.year,
+            occurrence.month,
+            occurrence.day,
+          ).isBefore(today);
+        })
+        .toList(growable: false);
+    for (final expense in futures) {
+      await softDeleteExpense(
+        expense.id,
+        reason: 'Ricorrenza annullata',
+        cancel: true,
+      );
+    }
+  }
+
+  Future<void> upsertExpenseSettings(ExpenseSettings settings) async {
+    final firestore = _firestore;
+    if (firestore == null) {
+      _upsertLocal(expenseSettings: [settings]);
+      return;
+    }
+    await firestore
+        .collection('expense_settings')
+        .doc(settings.salonId)
+        .set(expenseSettingsToMap(settings));
+    _upsertLocal(expenseSettings: [settings]);
+  }
+
   Future<void> upsertCashFlowEntry(CashFlowEntry entry) async {
     final firestore = _firestore;
     if (firestore == null) {
@@ -6410,6 +6650,18 @@ class AppDataStore extends StateNotifier<AppDataState> {
     for (final ticket in MockData.paymentTickets) {
       await upsertPaymentTicket(ticket);
     }
+    for (final category in MockData.expenseCategories) {
+      await upsertExpenseCategory(category);
+    }
+    for (final rule in MockData.expenseRecurringRules) {
+      await upsertExpenseRecurringRule(rule, generateOccurrences: false);
+    }
+    for (final expense in MockData.expenses) {
+      await upsertExpense(expense);
+    }
+    for (final settings in MockData.expenseSettings) {
+      await upsertExpenseSettings(settings);
+    }
     for (final entry in MockData.cashFlowEntries) {
       await upsertCashFlowEntry(entry);
     }
@@ -6481,6 +6733,10 @@ class AppDataStore extends StateNotifier<AppDataState> {
     List<Appointment>? publicAppointments,
     List<Quote>? quotes,
     List<PaymentTicket>? paymentTickets,
+    List<ExpenseCategory>? expenseCategories,
+    List<Expense>? expenses,
+    List<ExpenseRecurringRule>? expenseRecurringRules,
+    List<ExpenseSettings>? expenseSettings,
     List<InventoryItem>? inventoryItems,
     List<Sale>? sales,
     List<CashFlowEntry>? cashFlowEntries,
@@ -6568,6 +6824,28 @@ class AppDataStore extends StateNotifier<AppDataState> {
           paymentTickets != null
               ? _merge(state.paymentTickets, paymentTickets, (e) => e.id)
               : state.paymentTickets,
+      expenseCategories:
+          expenseCategories != null
+              ? _sortExpenseCategories(
+                _merge(state.expenseCategories, expenseCategories, (e) => e.id),
+              )
+              : state.expenseCategories,
+      expenses:
+          expenses != null
+              ? _merge(state.expenses, expenses, (e) => e.id)
+              : state.expenses,
+      expenseRecurringRules:
+          expenseRecurringRules != null
+              ? _merge(
+                state.expenseRecurringRules,
+                expenseRecurringRules,
+                (e) => e.id,
+              )
+              : state.expenseRecurringRules,
+      expenseSettings:
+          expenseSettings != null
+              ? _merge(state.expenseSettings, expenseSettings, (e) => e.salonId)
+              : state.expenseSettings,
       inventoryItems:
           inventoryItems != null
               ? _merge(state.inventoryItems, inventoryItems, (e) => e.id)
@@ -6879,6 +7157,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
       ),
       sales: List.unmodifiable(
         state.sales.where((element) => element.salonId != salonId),
+      ),
+      expenseCategories: List.unmodifiable(
+        state.expenseCategories.where((element) => element.salonId != salonId),
+      ),
+      expenses: List.unmodifiable(
+        state.expenses.where((element) => element.salonId != salonId),
+      ),
+      expenseRecurringRules: List.unmodifiable(
+        state.expenseRecurringRules.where(
+          (element) => element.salonId != salonId,
+        ),
+      ),
+      expenseSettings: List.unmodifiable(
+        state.expenseSettings.where((element) => element.salonId != salonId),
       ),
       cashFlowEntries: List.unmodifiable(
         state.cashFlowEntries.where((element) => element.salonId != salonId),
@@ -7226,6 +7518,96 @@ class AppDataStore extends StateNotifier<AppDataState> {
       usage[item.referenceId] = double.parse(total.toStringAsFixed(3));
     }
     return usage;
+  }
+
+  List<Expense> _generateRecurringExpenses(ExpenseRecurringRule rule) {
+    final now = DateTime.now();
+    final horizon = DateTime(now.year, now.month + 12, now.day);
+    final start = DateTime(
+      rule.startDate.year,
+      rule.startDate.month,
+      rule.startDate.day,
+    );
+    final end = rule.endDate;
+    final existingKeys =
+        state.expenses
+            .where((expense) => expense.recurrenceRuleId == rule.id)
+            .map((expense) {
+              final occurrence = expense.occurrenceDate ?? expense.dueDate;
+              final day = DateTime(
+                occurrence.year,
+                occurrence.month,
+                occurrence.day,
+              );
+              return '${rule.id}:${day.toIso8601String()}';
+            })
+            .toSet();
+    final results = <Expense>[];
+    var occurrence = start;
+    var guard = 0;
+    while (!occurrence.isAfter(horizon) && guard < 260) {
+      guard++;
+      if (end != null && occurrence.isAfter(end)) {
+        break;
+      }
+      final dueDate = _resolveRecurringDueDate(rule, occurrence);
+      final key =
+          '${rule.id}:${DateTime(dueDate.year, dueDate.month, dueDate.day).toIso8601String()}';
+      if (!existingKeys.contains(key)) {
+        existingKeys.add(key);
+        results.add(
+          Expense(
+            id: const Uuid().v4(),
+            salonId: rule.salonId,
+            categoryId: rule.categoryId,
+            title: rule.title,
+            supplierName: rule.supplierName,
+            amount: rule.amount,
+            taxAmount: rule.taxAmount,
+            totalAmount: rule.totalAmount,
+            currency: rule.currency,
+            competenceDate: occurrence,
+            dueDate: dueDate,
+            status: ExpenseStatus.toPay,
+            notes: rule.notes,
+            isRecurring: true,
+            recurrenceRuleId: rule.id,
+            occurrenceDate: dueDate,
+            createdAt: now,
+            createdBy: _currentUser?.uid,
+            updatedAt: now,
+            updatedBy: _currentUser?.uid,
+          ),
+        );
+      }
+      occurrence = _nextRecurringDate(rule, occurrence);
+    }
+    return results;
+  }
+
+  DateTime _resolveRecurringDueDate(
+    ExpenseRecurringRule rule,
+    DateTime occurrence,
+  ) {
+    final dueDay = rule.dueDay;
+    if (dueDay == null) {
+      return occurrence;
+    }
+    final lastDay = DateTime(occurrence.year, occurrence.month + 1, 0).day;
+    final safeDay = dueDay.clamp(1, lastDay).toInt();
+    return DateTime(occurrence.year, occurrence.month, safeDay);
+  }
+
+  DateTime _nextRecurringDate(ExpenseRecurringRule rule, DateTime current) {
+    final interval = rule.interval <= 0 ? 1 : rule.interval;
+    if (rule.frequency == ExpenseRecurrenceFrequency.weekly) {
+      return current.add(Duration(days: 7 * interval));
+    }
+    final monthStep = rule.frequency.monthStep * interval;
+    final nextMonth = current.month + monthStep;
+    final lastDay = DateTime(current.year, nextMonth + 1, 0).day;
+    final safeDay = current.day.clamp(1, lastDay).toInt();
+    return DateTime(current.year, nextMonth, safeDay);
   }
 
   void _deletePaymentTicketLocal(String ticketId) {
@@ -7877,6 +8259,19 @@ class AppDataStore extends StateNotifier<AppDataState> {
         .toList(growable: false);
   }
 
+  List<Expense> reportingExpenses({String? salonId}) {
+    return state.expenses
+        .where((expense) => salonId == null || expense.salonId == salonId)
+        .where((expense) => !expense.isDeleted && !expense.isCancelled)
+        .where(
+          (expense) => includeInReporting(
+            primary: expense.createdAt,
+            fallback: expense.competenceDate,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   List<T> _merge<T>(
     List<T> source,
     List<T> updates,
@@ -7887,6 +8282,20 @@ class AppDataStore extends StateNotifier<AppDataState> {
       map[keySelector(item)] = item;
     }
     return List.unmodifiable(map.values);
+  }
+
+  static List<ExpenseCategory> _sortExpenseCategories(
+    Iterable<ExpenseCategory> categories,
+  ) {
+    final sorted =
+        categories.toList()..sort((a, b) {
+          final orderCompare = a.sortOrder.compareTo(b.sortOrder);
+          if (orderCompare != 0) {
+            return orderCompare;
+          }
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        });
+    return List.unmodifiable(sorted);
   }
 }
 

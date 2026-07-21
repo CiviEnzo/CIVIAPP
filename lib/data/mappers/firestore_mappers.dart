@@ -9,6 +9,7 @@ import 'package:you_book/domain/entities/client_note.dart';
 import 'package:you_book/domain/entities/client_questionnaire.dart';
 import 'package:you_book/domain/entities/client_photo.dart';
 import 'package:you_book/domain/entities/client_photo_collage.dart';
+import 'package:you_book/domain/entities/expense.dart';
 import 'package:you_book/domain/entities/inventory_item.dart';
 import 'package:you_book/domain/entities/loyalty_settings.dart';
 import 'package:you_book/domain/entities/last_minute_slot.dart';
@@ -31,6 +32,7 @@ import 'package:you_book/domain/entities/staff_member.dart';
 import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/user_role.dart';
+import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
@@ -627,6 +629,276 @@ Map<String, dynamic> paymentTicketToMap(PaymentTicket ticket) {
   return map;
 }
 
+ExpenseCategory expenseCategoryFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return ExpenseCategory(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    name: data['name'] as String? ?? '',
+    description: data['description'] as String?,
+    color: _colorToInt(data['color']) ?? 0xFF7C3AED,
+    icon: data['icon'] as String? ?? 'receipt_long',
+    reportGroup: _expenseReportGroupFromString(data['reportGroup'] as String?),
+    monthlyBudget: (data['monthlyBudget'] as num?)?.toDouble(),
+    defaultPaymentMethod: _nullablePaymentMethod(
+      data['defaultPaymentMethod'] as String?,
+    ),
+    requiresAttachment: data['requiresAttachment'] == true,
+    isActive: data['isActive'] != false,
+    sortOrder: (data['sortOrder'] as num?)?.toInt() ?? 0,
+    createdAt: _coerceToDateTime(data['createdAt']),
+    createdBy: data['createdBy'] as String?,
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    updatedBy: data['updatedBy'] as String?,
+  );
+}
+
+Map<String, dynamic> expenseCategoryToMap(ExpenseCategory category) {
+  final map = <String, dynamic>{
+    'salonId': category.salonId,
+    'name': category.name,
+    'description': category.description,
+    'color': category.color,
+    'icon': category.icon,
+    'reportGroup': category.reportGroup.name,
+    'monthlyBudget': category.monthlyBudget,
+    'defaultPaymentMethod': category.defaultPaymentMethod?.name,
+    'requiresAttachment': category.requiresAttachment,
+    'isActive': category.isActive,
+    'sortOrder': category.sortOrder,
+    'createdAt':
+        category.createdAt != null
+            ? Timestamp.fromDate(category.createdAt!)
+            : FieldValue.serverTimestamp(),
+    'createdBy': category.createdBy,
+    'updatedAt':
+        category.updatedAt != null
+            ? Timestamp.fromDate(category.updatedAt!)
+            : FieldValue.serverTimestamp(),
+    'updatedBy': category.updatedBy,
+  };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
+Expense expenseFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final createdAt = _coerceToDateTime(data['createdAt']);
+  final competenceDate =
+      _coerceToDateTime(data['competenceDate']) ??
+      _coerceToDateTime(data['dueDate']) ??
+      createdAt ??
+      DateTime.now();
+  final dueDate = _coerceToDateTime(data['dueDate']) ?? competenceDate;
+  final paymentsRaw = data['payments'] as List<dynamic>? ?? const [];
+  final payments = paymentsRaw
+      .map((raw) => _expensePaymentFromMap(raw, fallbackDate: dueDate))
+      .whereType<ExpensePayment>()
+      .toList(growable: false);
+  final tagsRaw = data['tags'] as List<dynamic>? ?? const [];
+  final attachmentsRaw = data['attachmentUrls'] as List<dynamic>? ?? const [];
+  return Expense(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    categoryId: data['categoryId'] as String? ?? '',
+    title: data['title'] as String? ?? '',
+    supplierName: data['supplierName'] as String?,
+    amount: (data['amount'] as num?)?.toDouble(),
+    taxAmount: (data['taxAmount'] as num?)?.toDouble() ?? 0,
+    totalAmount: (data['totalAmount'] as num?)?.toDouble() ?? 0,
+    currency: data['currency'] as String? ?? 'EUR',
+    competenceDate: competenceDate,
+    dueDate: dueDate,
+    status: _expenseStatusFromString(data['status'] as String?),
+    payments: payments,
+    notes: data['notes'] as String?,
+    tags: tagsRaw.map((value) => value.toString()).toList(growable: false),
+    attachmentUrls: attachmentsRaw
+        .map((value) => value.toString())
+        .toList(growable: false),
+    isRecurring: data['isRecurring'] == true,
+    recurrenceRuleId: data['recurrenceRuleId'] as String?,
+    occurrenceDate: _coerceToDateTime(data['occurrenceDate']),
+    createdAt: createdAt,
+    createdBy: data['createdBy'] as String?,
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    updatedBy: data['updatedBy'] as String?,
+    deletedAt: _coerceToDateTime(data['deletedAt']),
+    deletedBy: data['deletedBy'] as String?,
+    deleteReason: data['deleteReason'] as String?,
+  );
+}
+
+Map<String, dynamic> expenseToMap(Expense expense) {
+  final map = <String, dynamic>{
+    'salonId': expense.salonId,
+    'categoryId': expense.categoryId,
+    'title': expense.title,
+    'supplierName': expense.supplierName,
+    'amount': expense.amount,
+    'taxAmount': expense.taxAmount,
+    'totalAmount': expense.totalAmount,
+    'currency': expense.currency,
+    'competenceDate': Timestamp.fromDate(expense.competenceDate),
+    'dueDate': Timestamp.fromDate(expense.dueDate),
+    'paymentDate':
+        expense.lastPaymentDate != null
+            ? Timestamp.fromDate(expense.lastPaymentDate!)
+            : null,
+    'paidAmount': expense.paidAmount,
+    'outstandingAmount': expense.outstandingAmount,
+    'status': expense.resolvedStatus.name,
+    'payments':
+        expense.payments
+            .map(
+              (payment) => {
+                'id': payment.id,
+                'amount': payment.amount,
+                'date': Timestamp.fromDate(payment.date),
+                'paymentMethod': payment.paymentMethod.name,
+                if (payment.recordedBy != null)
+                  'recordedBy': payment.recordedBy,
+                if (payment.note != null && payment.note!.isNotEmpty)
+                  'note': payment.note,
+              },
+            )
+            .toList(),
+    'notes': expense.notes,
+    'tags': expense.tags,
+    'attachmentUrls': expense.attachmentUrls,
+    'isRecurring': expense.isRecurring,
+    'recurrenceRuleId': expense.recurrenceRuleId,
+    'occurrenceDate':
+        expense.occurrenceDate != null
+            ? Timestamp.fromDate(expense.occurrenceDate!)
+            : null,
+    'createdAt':
+        expense.createdAt != null
+            ? Timestamp.fromDate(expense.createdAt!)
+            : FieldValue.serverTimestamp(),
+    'createdBy': expense.createdBy,
+    'updatedAt':
+        expense.updatedAt != null
+            ? Timestamp.fromDate(expense.updatedAt!)
+            : FieldValue.serverTimestamp(),
+    'updatedBy': expense.updatedBy,
+    'deletedAt':
+        expense.deletedAt != null
+            ? Timestamp.fromDate(expense.deletedAt!)
+            : null,
+    'deletedBy': expense.deletedBy,
+    'deleteReason': expense.deleteReason,
+  };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
+ExpenseRecurringRule expenseRecurringRuleFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  final startDate =
+      _coerceToDateTime(data['startDate']) ??
+      _coerceToDateTime(data['createdAt']) ??
+      DateTime.now();
+  return ExpenseRecurringRule(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    categoryId: data['categoryId'] as String? ?? '',
+    title: data['title'] as String? ?? '',
+    supplierName: data['supplierName'] as String?,
+    amount: (data['amount'] as num?)?.toDouble(),
+    taxAmount: (data['taxAmount'] as num?)?.toDouble() ?? 0,
+    totalAmount: (data['totalAmount'] as num?)?.toDouble() ?? 0,
+    currency: data['currency'] as String? ?? 'EUR',
+    frequency: _expenseFrequencyFromString(data['frequency'] as String?),
+    interval: (data['interval'] as num?)?.toInt() ?? 1,
+    startDate: startDate,
+    endDate: _coerceToDateTime(data['endDate']),
+    dueDay: (data['dueDay'] as num?)?.toInt(),
+    defaultPaymentMethod: _nullablePaymentMethod(
+      data['defaultPaymentMethod'] as String?,
+    ),
+    notes: data['notes'] as String?,
+    isActive: data['isActive'] != false,
+    createdAt: _coerceToDateTime(data['createdAt']),
+    createdBy: data['createdBy'] as String?,
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    updatedBy: data['updatedBy'] as String?,
+    cancelledAt: _coerceToDateTime(data['cancelledAt']),
+    cancelledBy: data['cancelledBy'] as String?,
+  );
+}
+
+Map<String, dynamic> expenseRecurringRuleToMap(ExpenseRecurringRule rule) {
+  final map = <String, dynamic>{
+    'salonId': rule.salonId,
+    'categoryId': rule.categoryId,
+    'title': rule.title,
+    'supplierName': rule.supplierName,
+    'amount': rule.amount,
+    'taxAmount': rule.taxAmount,
+    'totalAmount': rule.totalAmount,
+    'currency': rule.currency,
+    'frequency': rule.frequency.name,
+    'interval': rule.interval,
+    'startDate': Timestamp.fromDate(rule.startDate),
+    'endDate': rule.endDate != null ? Timestamp.fromDate(rule.endDate!) : null,
+    'dueDay': rule.dueDay,
+    'defaultPaymentMethod': rule.defaultPaymentMethod?.name,
+    'notes': rule.notes,
+    'isActive': rule.isActive,
+    'createdAt':
+        rule.createdAt != null
+            ? Timestamp.fromDate(rule.createdAt!)
+            : FieldValue.serverTimestamp(),
+    'createdBy': rule.createdBy,
+    'updatedAt':
+        rule.updatedAt != null
+            ? Timestamp.fromDate(rule.updatedAt!)
+            : FieldValue.serverTimestamp(),
+    'updatedBy': rule.updatedBy,
+    'cancelledAt':
+        rule.cancelledAt != null ? Timestamp.fromDate(rule.cancelledAt!) : null,
+    'cancelledBy': rule.cancelledBy,
+  };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
+ExpenseSettings expenseSettingsFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? <String, dynamic>{};
+  return ExpenseSettings(
+    salonId: data['salonId'] as String? ?? doc.id,
+    showExpensesInAgenda: data['showExpensesInAgenda'] == true,
+    agendaIndicatorMode:
+        data['agendaIndicatorMode'] as String? ?? 'icon_with_count',
+    upcomingWarningDays: (data['upcomingWarningDays'] as num?)?.toInt() ?? 7,
+    updatedAt: _coerceToDateTime(data['updatedAt']),
+    updatedBy: data['updatedBy'] as String?,
+  );
+}
+
+Map<String, dynamic> expenseSettingsToMap(ExpenseSettings settings) {
+  final map = <String, dynamic>{
+    'salonId': settings.salonId,
+    'showExpensesInAgenda': settings.showExpensesInAgenda,
+    'agendaIndicatorMode': settings.agendaIndicatorMode,
+    'upcomingWarningDays': settings.upcomingWarningDays,
+    'updatedAt':
+        settings.updatedAt != null
+            ? Timestamp.fromDate(settings.updatedAt!)
+            : FieldValue.serverTimestamp(),
+    'updatedBy': settings.updatedBy,
+  };
+  map.removeWhere((_, value) => value == null);
+  return map;
+}
+
 Quote quoteFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final data = doc.data() ?? <String, dynamic>{};
   final itemsRaw = data['items'] as List<dynamic>? ?? const [];
@@ -822,6 +1094,57 @@ DateTime? _coerceToDateTime(dynamic raw) {
     return DateTime.tryParse(raw);
   }
   return null;
+}
+
+int? _colorToInt(dynamic raw) {
+  if (raw is int) {
+    return raw;
+  }
+  if (raw is num) {
+    return raw.toInt();
+  }
+  if (raw is String) {
+    final normalized = raw.replaceAll('#', '').replaceAll('0x', '').trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    final hex = normalized.length == 6 ? 'FF$normalized' : normalized;
+    return int.tryParse(hex, radix: 16);
+  }
+  return null;
+}
+
+PaymentMethod? _nullablePaymentMethod(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return PaymentMethod.values.firstWhereOrNull(
+    (method) => method.name == value,
+  );
+}
+
+ExpensePayment? _expensePaymentFromMap(
+  dynamic raw, {
+  required DateTime fallbackDate,
+}) {
+  if (raw is! Map) {
+    return null;
+  }
+  final map = Map<String, dynamic>.from(
+    raw.map((key, value) => MapEntry(key.toString(), value)),
+  );
+  final amount = (map['amount'] as num?)?.toDouble();
+  if (amount == null || amount <= 0) {
+    return null;
+  }
+  return ExpensePayment(
+    id: map['id'] as String? ?? const Uuid().v4(),
+    amount: amount,
+    date: _coerceToDateTime(map['date']) ?? fallbackDate,
+    paymentMethod: _stringToPaymentMethod(map['paymentMethod'] as String?),
+    recordedBy: map['recordedBy'] as String?,
+    note: map['note'] as String?,
+  );
 }
 
 StaffMember staffFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -2538,6 +2861,35 @@ SalePaymentType? _salePaymentTypeFromString(String? value) {
     default:
       return null;
   }
+}
+
+ExpenseStatus _expenseStatusFromString(String? value) {
+  switch (value) {
+    case 'partial':
+      return ExpenseStatus.partial;
+    case 'paid':
+      return ExpenseStatus.paid;
+    case 'cancelled':
+      return ExpenseStatus.cancelled;
+    case 'toPay':
+    case 'da_pagare':
+    default:
+      return ExpenseStatus.toPay;
+  }
+}
+
+ExpenseReportGroup _expenseReportGroupFromString(String? value) {
+  return ExpenseReportGroup.values.firstWhere(
+    (group) => group.name == value,
+    orElse: () => ExpenseReportGroup.other,
+  );
+}
+
+ExpenseRecurrenceFrequency _expenseFrequencyFromString(String? value) {
+  return ExpenseRecurrenceFrequency.values.firstWhere(
+    (frequency) => frequency.name == value,
+    orElse: () => ExpenseRecurrenceFrequency.monthly,
+  );
 }
 
 CashFlowEntry cashFlowFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
