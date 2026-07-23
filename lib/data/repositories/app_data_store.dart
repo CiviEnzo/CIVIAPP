@@ -42,6 +42,7 @@ import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
 import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/domain/entities/web_client_request.dart';
 import 'package:you_book/data/storage/firebase_storage_service.dart';
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -134,6 +135,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
                promotions: List.unmodifiable(MockData.promotions),
                lastMinuteSlots: List.unmodifiable(MockData.lastMinuteSlots),
                salonAccessRequests: const [],
+               webClientRequests: const [],
                setupProgress: const [],
                appointmentDayChecklists: List.unmodifiable(
                  MockData.appointmentDayChecklists,
@@ -172,6 +174,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
   static const String _defaultStaffRoleId = 'estetista';
   static const String _unknownStaffRoleId = 'staff-role-unknown';
   static const String _salonAccessRequestsCollection = 'salon_access_requests';
+  static const String _webClientRequestsCollection = 'web_client_requests';
   static const String _staffAbsenceRequestsCollection =
       'staff_absence_requests';
   static const String _salonSetupProgressCollection = 'salon_setup_progress';
@@ -387,6 +390,28 @@ class AppDataStore extends StateNotifier<AppDataState> {
                 });
             state = state.copyWith(
               salonAccessRequests: List.unmodifiable(sorted),
+            );
+          },
+        ),
+      );
+
+      addAll(
+        _listenCollectionBySalonIds<WebClientRequest>(
+          firestore: firestore,
+          collectionPath: _webClientRequestsCollection,
+          salonIds: salonIds,
+          fromDoc: webClientRequestFromDoc,
+          onData: (items) {
+            final sorted =
+                items.toList()..sort((a, b) {
+                  final left =
+                      a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  final right =
+                      b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  return right.compareTo(left);
+                });
+            state = state.copyWith(
+              webClientRequests: List.unmodifiable(sorted),
             );
           },
         ),
@@ -1977,6 +2002,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
             address: source.address,
             city: source.city,
             postalCode: source.postalCode,
+            bookingLink: source.bookingLink,
             googlePlaceId: source.googlePlaceId,
             latitude: source.latitude,
             longitude: source.longitude,
@@ -2739,8 +2765,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
       return null;
     }
 
-    bool shouldSendReset = false;
-
     try {
       final functions = FirebaseFunctions.instanceFor(region: 'europe-west3');
       final callable = functions.httpsCallable('createClientAccount');
@@ -2754,14 +2778,7 @@ class AppDataStore extends StateNotifier<AppDataState> {
       if (sanitizedTargetUserId != null && sanitizedTargetUserId.isNotEmpty) {
         payload['userId'] = sanitizedTargetUserId;
       }
-      final result = await callable
-          .call(payload)
-          .timeout(_kClientCallableTimeout);
-
-      final data = result.data;
-      if (data is Map && data['shouldSendPasswordReset'] == true) {
-        shouldSendReset = true;
-      }
+      await callable.call(payload).timeout(_kClientCallableTimeout);
     } on TimeoutException catch (error, stackTrace) {
       FlutterError.reportError(
         FlutterErrorDetails(
@@ -2810,24 +2827,6 @@ class AppDataStore extends StateNotifier<AppDataState> {
       );
     }
 
-    if (!shouldSendReset) {
-      return null;
-    }
-
-    final auth = await _getAdminAuth();
-    if (auth == null) {
-      return _clientAccountWarningMessage(
-        'Non e stato possibile inviare l\'email di accesso al cliente.',
-      );
-    }
-    try {
-      await auth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (error) {
-      debugPrint('Unable to send reset email to $email: ${error.message}');
-      return _clientAccountWarningMessage(
-        'Non e stato possibile inviare l\'email di accesso al cliente.',
-      );
-    }
     return null;
   }
 
@@ -6303,6 +6302,62 @@ class AppDataStore extends StateNotifier<AppDataState> {
 
     if (updatedClient != null) {
       _upsertLocal(clients: <Client>[updatedClient]);
+    }
+  }
+
+  Future<void> recordClientNativeAppUsage({
+    required String clientId,
+    required String installationId,
+    required String platform,
+    required String appVersion,
+  }) async {
+    final normalizedClientId = clientId.trim();
+    final normalizedInstallationId = installationId.trim();
+    final normalizedPlatform = platform.trim();
+    final normalizedAppVersion = appVersion.trim();
+    if (normalizedClientId.isEmpty ||
+        normalizedInstallationId.isEmpty ||
+        normalizedPlatform.isEmpty ||
+        normalizedAppVersion.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final existingClient = state.clients.firstWhereOrNull(
+      (client) => client.id == normalizedClientId,
+    );
+    final firestore = _firestore;
+    if (firestore != null) {
+      final clientRef = firestore.collection('clients').doc(normalizedClientId);
+      await firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(clientRef);
+        if (!snapshot.exists) {
+          throw StateError('Profilo cliente non trovato.');
+        }
+        final data = snapshot.data() ?? <String, dynamic>{};
+        transaction.set(clientRef, <String, dynamic>{
+          if (data['firstAppOpenedAt'] == null)
+            'firstAppOpenedAt': FieldValue.serverTimestamp(),
+          'lastAppSeenAt': FieldValue.serverTimestamp(),
+          'appInstallationId': normalizedInstallationId,
+          'appPlatform': normalizedPlatform,
+          'appVersion': normalizedAppVersion,
+        }, SetOptions(merge: true));
+      });
+    }
+
+    if (existingClient != null) {
+      _upsertLocal(
+        clients: <Client>[
+          existingClient.copyWith(
+            firstAppOpenedAt: existingClient.firstAppOpenedAt ?? now,
+            lastAppSeenAt: now,
+            appInstallationId: normalizedInstallationId,
+            appPlatform: normalizedPlatform,
+            appVersion: normalizedAppVersion,
+          ),
+        ],
+      );
     }
   }
 

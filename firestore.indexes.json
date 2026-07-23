@@ -51,6 +51,14 @@
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "scheduledAt", "order": "ASCENDING"}
       ]
+    },
+    {
+      "collectionGroup": "public_promotions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "salonSlug", "order": "ASCENDING"},
+        {"fieldPath": "promotionSlug", "order": "ASCENDING"}
+      ]
     }
   ],
   "fieldOverrides": []

@@ -269,8 +269,8 @@ class AdvancedSearchEngine {
           }
 
           if (filters.hasPushToken != null) {
-            final hasPushTokens = client.fcmTokens.isNotEmpty;
-            if (hasPushTokens != filters.hasPushToken) {
+            final hasActiveApp = client.isNativeAppActiveAt(now);
+            if (hasActiveApp != filters.hasPushToken) {
               return false;
             }
           }

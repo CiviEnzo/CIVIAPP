@@ -1,5 +1,37 @@
 const Object _promotionSentinel = Object();
 
+abstract final class PromotionLandingTemplates {
+  static const String editorialBeauty = 'editorialBeauty';
+  static const String minimalGlow = 'minimalGlow';
+  static const String studioPop = 'studioPop';
+  static const String botanicalRitual = 'botanicalRitual';
+  static const List<String> values = <String>[
+    editorialBeauty,
+    minimalGlow,
+    studioPop,
+    botanicalRitual,
+  ];
+
+  static String normalize(String? value) {
+    return values.contains(value) ? value! : editorialBeauty;
+  }
+
+  static String label(String value) {
+    switch (normalize(value)) {
+      case editorialBeauty:
+        return 'Editorial Beauty';
+      case minimalGlow:
+        return 'Minimal Glow';
+      case studioPop:
+        return 'Studio Pop';
+      case botanicalRitual:
+        return 'Botanical Ritual';
+      default:
+        return 'Editorial Beauty';
+    }
+  }
+}
+
 enum PromotionCtaType { none, link, whatsapp, phone, booking, custom }
 
 PromotionCtaType _promotionCtaTypeFromName(String? raw) {
@@ -22,6 +54,113 @@ PromotionCtaType _promotionCtaTypeFromName(String? raw) {
 }
 
 enum PromotionStatus { draft, scheduled, published, expired }
+
+class PromotionWebLanding {
+  const PromotionWebLanding({
+    this.enabled = false,
+    this.slug = '',
+    this.eyebrow = 'Offerta esclusiva',
+    this.formTitle = 'Richiedi informazioni',
+    this.formDescription =
+        'Compila il modulo: il salone ti ricontatterà per fornirti tutti i dettagli.',
+    this.submitLabel = 'Richiedi informazioni',
+    this.interestOptions = const <String>[],
+    this.offerPrice,
+    this.originalPrice,
+    this.fontFamily = 'playfairDmSans',
+    this.templateId = PromotionLandingTemplates.editorialBeauty,
+  });
+
+  final bool enabled;
+  final String slug;
+  final String eyebrow;
+  final String formTitle;
+  final String formDescription;
+  final String submitLabel;
+  final List<String> interestOptions;
+  final String? offerPrice;
+  final String? originalPrice;
+  final String fontFamily;
+  final String templateId;
+
+  PromotionWebLanding copyWith({
+    bool? enabled,
+    String? slug,
+    String? eyebrow,
+    String? formTitle,
+    String? formDescription,
+    String? submitLabel,
+    List<String>? interestOptions,
+    Object? offerPrice = _promotionSentinel,
+    Object? originalPrice = _promotionSentinel,
+    String? fontFamily,
+    String? templateId,
+  }) {
+    return PromotionWebLanding(
+      enabled: enabled ?? this.enabled,
+      slug: slug ?? this.slug,
+      eyebrow: eyebrow ?? this.eyebrow,
+      formTitle: formTitle ?? this.formTitle,
+      formDescription: formDescription ?? this.formDescription,
+      submitLabel: submitLabel ?? this.submitLabel,
+      interestOptions: interestOptions ?? this.interestOptions,
+      offerPrice:
+          identical(offerPrice, _promotionSentinel)
+              ? this.offerPrice
+              : offerPrice as String?,
+      originalPrice:
+          identical(originalPrice, _promotionSentinel)
+              ? this.originalPrice
+              : originalPrice as String?,
+      fontFamily: fontFamily ?? this.fontFamily,
+      templateId: templateId ?? this.templateId,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'enabled': enabled,
+      'slug': slug,
+      'eyebrow': eyebrow,
+      'formTitle': formTitle,
+      'formDescription': formDescription,
+      'submitLabel': submitLabel,
+      'interestOptions': interestOptions,
+      if (offerPrice?.isNotEmpty == true) 'offerPrice': offerPrice,
+      if (originalPrice?.isNotEmpty == true) 'originalPrice': originalPrice,
+      'fontFamily': fontFamily,
+      'templateId': templateId,
+    };
+  }
+
+  factory PromotionWebLanding.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const PromotionWebLanding();
+    final options = map['interestOptions'];
+    return PromotionWebLanding(
+      enabled: map['enabled'] as bool? ?? false,
+      slug: map['slug'] as String? ?? '',
+      eyebrow: map['eyebrow'] as String? ?? 'Offerta esclusiva',
+      formTitle: map['formTitle'] as String? ?? 'Richiedi informazioni',
+      formDescription:
+          map['formDescription'] as String? ??
+          'Compila il modulo: il salone ti ricontatterà per fornirti tutti i dettagli.',
+      submitLabel: map['submitLabel'] as String? ?? 'Richiedi informazioni',
+      interestOptions:
+          options is List
+              ? options
+                  .map((value) => value.toString().trim())
+                  .where((value) => value.isNotEmpty)
+                  .toList(growable: false)
+              : const <String>[],
+      offerPrice: map['offerPrice'] as String?,
+      originalPrice: map['originalPrice'] as String?,
+      fontFamily: map['fontFamily'] as String? ?? 'playfairDmSans',
+      templateId: PromotionLandingTemplates.normalize(
+        map['templateId'] as String?,
+      ),
+    );
+  }
+}
 
 PromotionStatus promotionStatusFromName(String? raw) {
   switch (raw) {
@@ -390,6 +529,7 @@ class Promotion {
     this.createdBy,
     this.updatedBy,
     this.analytics,
+    this.webLanding = const PromotionWebLanding(),
   }) : coverImageUrl = coverImageUrl ?? imageUrl,
        coverImagePath = coverImagePath ?? imageStoragePath,
        sections = List.unmodifiable(sections);
@@ -416,6 +556,7 @@ class Promotion {
   final String? createdBy;
   final String? updatedBy;
   final PromotionAnalytics? analytics;
+  final PromotionWebLanding webLanding;
 
   @Deprecated('Use coverImageUrl instead')
   String? get imageUrl => coverImageUrl;
@@ -448,6 +589,7 @@ class Promotion {
     Object? createdBy = _promotionSentinel,
     Object? updatedBy = _promotionSentinel,
     Object? analytics = _promotionSentinel,
+    PromotionWebLanding? webLanding,
   }) {
     return Promotion(
       id: id ?? this.id,
@@ -497,6 +639,7 @@ class Promotion {
           identical(analytics, _promotionSentinel)
               ? this.analytics
               : analytics as PromotionAnalytics?,
+      webLanding: webLanding ?? this.webLanding,
     );
   }
 

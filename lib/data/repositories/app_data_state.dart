@@ -30,6 +30,7 @@ import 'package:you_book/domain/entities/staff_role.dart';
 import 'package:you_book/domain/entities/reminder_settings.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
+import 'package:you_book/domain/entities/web_client_request.dart';
 
 class AppDataState {
   const AppDataState({
@@ -69,6 +70,7 @@ class AppDataState {
     required this.promotions,
     required this.lastMinuteSlots,
     required this.salonAccessRequests,
+    required this.webClientRequests,
     required this.setupProgress,
     required this.appointmentDayChecklists,
   });
@@ -111,6 +113,7 @@ class AppDataState {
       promotions: [],
       lastMinuteSlots: [],
       salonAccessRequests: [],
+      webClientRequests: [],
       setupProgress: [],
       appointmentDayChecklists: [],
     );
@@ -152,6 +155,7 @@ class AppDataState {
   final List<Promotion> promotions;
   final List<LastMinuteSlot> lastMinuteSlots;
   final List<SalonAccessRequest> salonAccessRequests;
+  final List<WebClientRequest> webClientRequests;
   final List<AdminSetupProgress> setupProgress;
   final List<AppointmentDayChecklist> appointmentDayChecklists;
 
@@ -192,6 +196,7 @@ class AppDataState {
     List<Promotion>? promotions,
     List<LastMinuteSlot>? lastMinuteSlots,
     List<SalonAccessRequest>? salonAccessRequests,
+    List<WebClientRequest>? webClientRequests,
     List<AdminSetupProgress>? setupProgress,
     List<AppointmentDayChecklist>? appointmentDayChecklists,
   }) {
@@ -234,6 +239,7 @@ class AppDataState {
       promotions: promotions ?? this.promotions,
       lastMinuteSlots: lastMinuteSlots ?? this.lastMinuteSlots,
       salonAccessRequests: salonAccessRequests ?? this.salonAccessRequests,
+      webClientRequests: webClientRequests ?? this.webClientRequests,
       setupProgress: setupProgress ?? this.setupProgress,
       appointmentDayChecklists:
           appointmentDayChecklists ?? this.appointmentDayChecklists,

@@ -2,7 +2,7 @@ name: you_book
 description: "You Book gestionale per saloni di centri estetici"
 publish_to: 'none'
 
-version: 1.0.1+12
+version: 1.0.3+24
 
 environment:
   sdk: ^3.7.2
@@ -11,6 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_localizations:
+    sdk: flutter
+  flutter_web_plugins:
     sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1

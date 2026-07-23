@@ -68,6 +68,11 @@ class Client {
     this.invitationSentAt,
     this.firstLoginAt,
     this.onboardingCompletedAt,
+    this.firstAppOpenedAt,
+    this.lastAppSeenAt,
+    this.appInstallationId,
+    this.appPlatform,
+    this.appVersion,
     this.createdAt,
   });
 
@@ -100,7 +105,26 @@ class Client {
   final DateTime? invitationSentAt;
   final DateTime? firstLoginAt;
   final DateTime? onboardingCompletedAt;
+  final DateTime? firstAppOpenedAt;
+  final DateTime? lastAppSeenAt;
+  final String? appInstallationId;
+  final String? appPlatform;
+  final String? appVersion;
   final DateTime? createdAt;
+
+  static const Duration nativeAppActiveWindow = Duration(days: 30);
+
+  bool get hasOpenedNativeApp =>
+      firstAppOpenedAt != null || lastAppSeenAt != null || fcmTokens.isNotEmpty;
+
+  bool isNativeAppActiveAt(DateTime now) {
+    final latestUsage = lastAppSeenAt ?? firstAppOpenedAt;
+    if (latestUsage != null) {
+      return !latestUsage.isBefore(now.subtract(nativeAppActiveWindow));
+    }
+    // Legacy fallback until existing native installations report usage.
+    return fcmTokens.isNotEmpty;
+  }
 
   String get fullName => '$firstName $lastName';
 
@@ -131,6 +155,11 @@ class Client {
     Object? invitationSentAt = _unset,
     Object? firstLoginAt = _unset,
     Object? onboardingCompletedAt = _unset,
+    Object? firstAppOpenedAt = _unset,
+    Object? lastAppSeenAt = _unset,
+    Object? appInstallationId = _unset,
+    Object? appPlatform = _unset,
+    Object? appVersion = _unset,
     ChannelPreferences? channelPreferences,
     Object? createdAt = _unset,
   }) {
@@ -189,8 +218,23 @@ class Client {
           onboardingCompletedAt == _unset
               ? this.onboardingCompletedAt
               : onboardingCompletedAt as DateTime?,
-      createdAt:
-          createdAt == _unset ? this.createdAt : createdAt as DateTime?,
+      firstAppOpenedAt:
+          firstAppOpenedAt == _unset
+              ? this.firstAppOpenedAt
+              : firstAppOpenedAt as DateTime?,
+      lastAppSeenAt:
+          lastAppSeenAt == _unset
+              ? this.lastAppSeenAt
+              : lastAppSeenAt as DateTime?,
+      appInstallationId:
+          appInstallationId == _unset
+              ? this.appInstallationId
+              : appInstallationId as String?,
+      appPlatform:
+          appPlatform == _unset ? this.appPlatform : appPlatform as String?,
+      appVersion:
+          appVersion == _unset ? this.appVersion : appVersion as String?,
+      createdAt: createdAt == _unset ? this.createdAt : createdAt as DateTime?,
     );
   }
 }

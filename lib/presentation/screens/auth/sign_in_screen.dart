@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:you_book/presentation/common/auth_error_messages.dart';
 import 'package:you_book/presentation/screens/auth/legal_links.dart';
 import 'package:you_book/presentation/common/app_version_badge.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -283,9 +284,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     } on Exception catch (error) {
       didFail = true;
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showAppSnackBar(SnackBar(content: Text(_friendlyError(error))));
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(content: Text(italianLoginErrorMessage(error))),
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -406,33 +407,5 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
         const SnackBar(content: Text('Impossibile aprire il client email.')),
       );
     }
-  }
-
-  String _friendlyError(Exception error) {
-    final message = error.toString();
-    if (message.contains('wrong-password')) {
-      return 'Password errata.';
-    }
-    if (message.contains('user-not-found')) {
-      return 'Utente non trovato.';
-    }
-    if (message.contains('too-many-requests')) {
-      return 'Troppi tentativi. Riprova più tardi.';
-    }
-    if (message.contains('user-disabled')) {
-      return 'Account disabilitato.';
-    }
-    if (message.contains('admin-not-enabled')) {
-      return 'Account in attesa di abilitazione.';
-    }
-    if (message.contains('user-profile-not-found') ||
-        message.contains('user-profile-email-mismatch') ||
-        message.contains('user-profile-check-failed')) {
-      return 'Account non autorizzato. Contatta l\'amministratore.';
-    }
-    if (message.contains('email-not-verified')) {
-      return 'Email non verificata. Controlla la posta e conferma l\'indirizzo prima di accedere.';
-    }
-    return 'Accesso non riuscito: $message';
   }
 }

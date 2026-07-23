@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
-
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/domain/entities/promotion.dart';
 import 'package:you_book/domain/entities/salon.dart';
@@ -9,11 +7,14 @@ import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
 import 'package:you_book/presentation/common/hybrid_image_picker.dart';
 import 'package:file_selector/file_selector.dart' show XFile;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:you_book/presentation/screens/client/client_theme.dart';
 import 'package:you_book/presentation/shared/promotion_palette.dart';
+import 'package:you_book/services/salons/promotion_landing_link_service.dart';
 
 class PromotionEditorDialog extends ConsumerStatefulWidget {
   const PromotionEditorDialog({
@@ -52,6 +53,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
   final _previewTabScrollController = ScrollController();
   final _previewRailScrollController = ScrollController();
   final _previewPageScrollController = ScrollController();
+  final _landingScrollController = ScrollController();
   late final TabController _tabController;
 
   late final TextEditingController _titleController;
@@ -64,7 +66,18 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
   late final TextEditingController _ctaPhoneController;
   late final TextEditingController _ctaWhatsappMessageController;
   late final TextEditingController _accentHexController;
+  late final TextEditingController _landingSlugController;
+  late final TextEditingController _landingEyebrowController;
+  late final TextEditingController _landingFormTitleController;
+  late final TextEditingController _landingFormDescriptionController;
+  late final TextEditingController _landingSubmitLabelController;
+  late final TextEditingController _landingInterestOptionsController;
+  late final TextEditingController _landingOfferPriceController;
+  late final TextEditingController _landingOriginalPriceController;
   String? _accentHexError;
+  bool _landingEnabled = false;
+  String _landingFontFamily = 'playfairDmSans';
+  String _landingTemplateId = PromotionLandingTemplates.editorialBeauty;
 
   late final String _promotionId;
   PromotionStatus _status = PromotionStatus.draft;
@@ -89,7 +102,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this)
+    _tabController = TabController(length: 4, vsync: this)
       ..addListener(_handleTabChanged);
     final initial = widget.initialPromotion;
     _promotionId = initial?.id ?? const Uuid().v4();
@@ -113,6 +126,32 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
     _accentHexController = TextEditingController(
       text: initialThemeColor != null ? _colorToHex(initialThemeColor) : '',
     );
+    final landing = initial?.webLanding ?? const PromotionWebLanding();
+    _landingEnabled = landing.enabled;
+    _landingFontFamily = landing.fontFamily;
+    _landingTemplateId = PromotionLandingTemplates.normalize(
+      landing.templateId,
+    );
+    _landingSlugController = TextEditingController(text: landing.slug);
+    _landingEyebrowController = TextEditingController(text: landing.eyebrow);
+    _landingFormTitleController = TextEditingController(
+      text: landing.formTitle,
+    );
+    _landingFormDescriptionController = TextEditingController(
+      text: landing.formDescription,
+    );
+    _landingSubmitLabelController = TextEditingController(
+      text: landing.submitLabel,
+    );
+    _landingInterestOptionsController = TextEditingController(
+      text: landing.interestOptions.join('\n'),
+    );
+    _landingOfferPriceController = TextEditingController(
+      text: landing.offerPrice ?? '',
+    );
+    _landingOriginalPriceController = TextEditingController(
+      text: landing.originalPrice ?? '',
+    );
     _startsAt = initial?.startsAt;
     _endsAt = initial?.endsAt;
     _coverImageUrl = initial?.coverImageUrl;
@@ -127,6 +166,12 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
       return;
     }
     if (_activeTabIndex != _tabController.index) {
+      if (_tabController.index == 3 &&
+          _landingSlugController.text.trim().isEmpty) {
+        _landingSlugController.text = PromotionLandingLinkService.slugify(
+          _titleController.text,
+        );
+      }
       setState(() {
         _activeTabIndex = _tabController.index;
       });
@@ -631,6 +676,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
     _previewTabScrollController.dispose();
     _previewRailScrollController.dispose();
     _previewPageScrollController.dispose();
+    _landingScrollController.dispose();
     _titleController.dispose();
     _subtitleController.dispose();
     _taglineController.dispose();
@@ -641,6 +687,14 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
     _ctaPhoneController.dispose();
     _ctaWhatsappMessageController.dispose();
     _accentHexController.dispose();
+    _landingSlugController.dispose();
+    _landingEyebrowController.dispose();
+    _landingFormTitleController.dispose();
+    _landingFormDescriptionController.dispose();
+    _landingSubmitLabelController.dispose();
+    _landingInterestOptionsController.dispose();
+    _landingOfferPriceController.dispose();
+    _landingOriginalPriceController.dispose();
     for (final section in _sections) {
       section.dispose();
     }
@@ -720,6 +774,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
                       Tab(text: 'Dettagli'),
                       Tab(text: 'Contenuto'),
                       Tab(text: 'Anteprima'),
+                      Tab(text: 'Landing web'),
                     ],
                   ),
                 ),
@@ -782,6 +837,8 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
         return _buildContentStep(theme);
       case 2:
         return _buildPreviewStep(theme);
+      case 3:
+        return _buildLandingStep(theme);
     }
     return _buildDetailsStep(theme);
   }
@@ -1345,6 +1402,492 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
     );
   }
 
+  Widget _buildLandingTemplatePreview(ThemeData theme) {
+    final promotion = _buildPromotionForPreview();
+    final landing = _buildWebLanding();
+    final scheme = theme.colorScheme;
+    return _buildCardPanel(
+      theme,
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final title = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Template landing',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.primary.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'APPROVATO',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.7,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'La preview si aggiorna mentre modifichi testi, colori, font e offerta.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                );
+                final selector = SizedBox(
+                  width: 230,
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey<String>(
+                      'landing-template-selector-$_landingTemplateId',
+                    ),
+                    initialValue: _landingTemplateId,
+                    isExpanded: true,
+                    decoration: _modalFieldDecoration(theme, dense: true),
+                    items: [
+                      for (final templateId in PromotionLandingTemplates.values)
+                        DropdownMenuItem(
+                          value: templateId,
+                          child: Text(
+                            PromotionLandingTemplates.label(templateId),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _landingTemplateId = value);
+                      }
+                    },
+                  ),
+                );
+                if (constraints.maxWidth < 620) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [title, const SizedBox(height: 14), selector],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: title),
+                    const SizedBox(width: 16),
+                    selector,
+                  ],
+                );
+              },
+            ),
+          ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          SizedBox(
+            height: 540,
+            child: _LandingTemplatePreview(
+              promotion: promotion,
+              landing: landing,
+              salonName: widget.salon?.name ?? 'Nome salone',
+              salonPhone: widget.salon?.phone ?? '',
+              salonEmail: widget.salon?.email ?? '',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandingStep(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final landingUrl = _promotionLandingUrl();
+    final iframeCode = _promotionIframeCode();
+    return Scrollbar(
+      controller: _landingScrollController,
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        controller: _landingScrollController,
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 32),
+        child: _buildTabViewport(
+          maxWidth: 940,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Landing page della promozione',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pubblica una pagina dedicata su youbook.civiapp.it e, se il salone ha già un sito, incorporala con l’iframe.',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _buildLandingTemplatePreview(theme),
+              const SizedBox(height: 16),
+              _buildCardPanel(
+                theme,
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Pubblica landing web'),
+                      subtitle: const Text(
+                        'La pagina è visibile quando anche la promozione è nello stato Pubblicata.',
+                      ),
+                      value: _landingEnabled,
+                      onChanged:
+                          (value) => setState(() => _landingEnabled = value),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'INDIRIZZO DELLA PROMOZIONE',
+                      helper:
+                          'Usa solo lettere minuscole, numeri e trattini. Il nome del salone viene aggiunto automaticamente.',
+                      child: TextFormField(
+                        controller: _landingSlugController,
+                        autocorrect: false,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'es. beauty-reset',
+                          prefixIcon: const Icon(Icons.link_rounded),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCardPanel(
+                theme,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Testi e modulo',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'SOPRATITOLO',
+                      child: TextFormField(
+                        controller: _landingEyebrowController,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'Es. Il tuo primo passo',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'TITOLO DEL MODULO',
+                      child: TextFormField(
+                        controller: _landingFormTitleController,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'Es. Prenota la tua consulenza',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'DESCRIZIONE DEL MODULO',
+                      child: TextFormField(
+                        controller: _landingFormDescriptionController,
+                        maxLines: 3,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'Spiega cosa succede dopo l’invio.',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'TESTO DEL PULSANTE',
+                      child: TextFormField(
+                        controller: _landingSubmitLabelController,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'Es. Richiedi la promozione',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'OPZIONI DI INTERESSE',
+                      helper:
+                          'Una voce per riga. Se lasci vuoto, il modulo non mostra questa domanda.',
+                      child: TextFormField(
+                        controller: _landingInterestOptionsController,
+                        minLines: 3,
+                        maxLines: 7,
+                        decoration: _modalFieldDecoration(
+                          theme,
+                          hintText: 'Viso\nCorpo\nVorrei un consiglio',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCardPanel(
+                theme,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Aspetto e offerta',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildFieldGroup(
+                      theme,
+                      label: 'FONT',
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _landingFontFamily,
+                        decoration: _modalFieldDecoration(theme),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'playfairDmSans',
+                            child: Text('Playfair Display + DM Sans'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'DM Sans',
+                            child: Text('DM Sans'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Montserrat',
+                            child: Text('Montserrat'),
+                          ),
+                          DropdownMenuItem(value: 'Lato', child: Text('Lato')),
+                          DropdownMenuItem(
+                            value: 'Poppins',
+                            child: Text('Poppins'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'system',
+                            child: Text('Font di sistema'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _landingFontFamily = value);
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: _buildFieldGroup(
+                            theme,
+                            label: 'PREZZO OFFERTA',
+                            child: TextFormField(
+                              controller: _landingOfferPriceController,
+                              decoration: _modalFieldDecoration(
+                                theme,
+                                hintText: 'Es. 79 €',
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildFieldGroup(
+                            theme,
+                            label: 'PREZZO ORIGINALE',
+                            child: TextFormField(
+                              controller: _landingOriginalPriceController,
+                              decoration: _modalFieldDecoration(
+                                theme,
+                                hintText: 'Es. 120 €',
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Il colore principale è quello scelto nella scheda Anteprima. Titolo, immagini e sezioni arrivano dal contenuto della promozione.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildCardPanel(
+                theme,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Link pronti da usare',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Salva la promozione prima di aprire o incollare questi collegamenti.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _LandingCopyField(
+                      label: 'URL LANDING PAGE',
+                      value: landingUrl,
+                      onCopy:
+                          () => _copyLandingValue(landingUrl, 'URL copiato'),
+                    ),
+                    const SizedBox(height: 14),
+                    _LandingCopyField(
+                      label: 'CODICE IFRAME',
+                      value: iframeCode,
+                      multiline: true,
+                      onCopy:
+                          () => _copyLandingValue(
+                            iframeCode,
+                            'Codice iframe copiato',
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  PromotionWebLanding _buildWebLanding() {
+    String? optional(String value) {
+      final trimmed = value.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    }
+
+    final slug = PromotionLandingLinkService.slugify(
+      _landingSlugController.text.trim().isEmpty
+          ? _titleController.text
+          : _landingSlugController.text,
+    );
+    final options = _landingInterestOptionsController.text
+        .split(RegExp(r'[\r\n]+'))
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .take(12)
+        .toList(growable: false);
+    return PromotionWebLanding(
+      enabled: _landingEnabled,
+      slug: slug,
+      eyebrow:
+          _landingEyebrowController.text.trim().isEmpty
+              ? 'Offerta esclusiva'
+              : _landingEyebrowController.text.trim(),
+      formTitle:
+          _landingFormTitleController.text.trim().isEmpty
+              ? 'Richiedi informazioni'
+              : _landingFormTitleController.text.trim(),
+      formDescription:
+          _landingFormDescriptionController.text.trim().isEmpty
+              ? 'Compila il modulo: il salone ti ricontatterà per fornirti tutti i dettagli.'
+              : _landingFormDescriptionController.text.trim(),
+      submitLabel:
+          _landingSubmitLabelController.text.trim().isEmpty
+              ? 'Richiedi informazioni'
+              : _landingSubmitLabelController.text.trim(),
+      interestOptions: options,
+      offerPrice: optional(_landingOfferPriceController.text),
+      originalPrice: optional(_landingOriginalPriceController.text),
+      fontFamily: _landingFontFamily,
+      templateId: _landingTemplateId,
+    );
+  }
+
+  String _promotionLandingUrl() {
+    return PromotionLandingLinkService.landingUrl(
+      origin: PromotionLandingLinkService.productionOrigin,
+      salonSlug: PromotionLandingLinkService.salonSlug(
+        salonName: widget.salon?.name ?? 'Salone',
+        salonId: widget.salonId,
+      ),
+      promotionSlug: _buildWebLanding().slug,
+    );
+  }
+
+  String _promotionIframeCode() {
+    return PromotionLandingLinkService.iframeCode(
+      origin: PromotionLandingLinkService.productionOrigin,
+      salonSlug: PromotionLandingLinkService.salonSlug(
+        salonName: widget.salon?.name ?? 'Salone',
+        salonId: widget.salonId,
+      ),
+      promotionSlug: _buildWebLanding().slug,
+      title:
+          _titleController.text.trim().isEmpty
+              ? 'Promozione del salone'
+              : _titleController.text.trim(),
+    );
+  }
+
+  Future<void> _copyLandingValue(String value, String message) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showAppSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _showAddSectionPicker() async {
     final selected = await showAppModalSheet<PromotionSectionType>(
       context: context,
@@ -1592,6 +2135,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
       priority: priority,
       status: _status,
       isActive: _status == PromotionStatus.published,
+      webLanding: _buildWebLanding(),
     );
   }
 
@@ -1636,6 +2180,14 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
     final discount =
         double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0.0;
     final priority = int.tryParse(_priorityController.text) ?? 0;
+    final webLanding = _buildWebLanding();
+    if (_titleController.text.trim().isEmpty) {
+      _tabController.animateTo(0);
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        const SnackBar(content: Text('Inserisci il titolo della promozione.')),
+      );
+      return;
+    }
     final promotion = (widget.initialPromotion ??
             Promotion(
               id: _promotionId,
@@ -1647,6 +2199,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
               status: _status,
               isActive: _status == PromotionStatus.published,
               themeColor: _accentColor?.toARGB32(),
+              webLanding: webLanding,
             ))
         .copyWith(
           id: _promotionId,
@@ -1671,6 +2224,7 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
           status: _status,
           isActive: _status == PromotionStatus.published,
           themeColor: _accentColor?.toARGB32(),
+          webLanding: webLanding,
         );
     if (!mounted) return;
     Navigator.of(context).pop(promotion);
@@ -1964,6 +2518,71 @@ class _PromotionEditorDialogState extends ConsumerState<PromotionEditorDialog>
   }
 }
 
+class _LandingCopyField extends StatelessWidget {
+  const _LandingCopyField({
+    required this.label,
+    required this.value,
+    required this.onCopy,
+    this.multiline = false,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onCopy;
+  final bool multiline;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: theme.colorScheme.outlineVariant),
+          ),
+          child: Row(
+            crossAxisAlignment:
+                multiline
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: SelectableText(
+                  value,
+                  maxLines: multiline ? 8 : 2,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontFamily: 'monospace',
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Copia',
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_rounded),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _PromotionExpandablePanel extends StatelessWidget {
   const _PromotionExpandablePanel({
     required this.title,
@@ -2246,6 +2865,7 @@ class _CoverImagePicker extends StatelessWidget {
                       child: Image.network(
                         imageUrl!,
                         fit: BoxFit.cover,
+                        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                         errorBuilder:
                             (_, __, ___) => Container(
                               color: scheme.surfaceContainerHighest,
@@ -2832,6 +3452,7 @@ class _ImageSectionEditor extends StatelessWidget {
               child: Image.network(
                 section.imageUrl!,
                 fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
                 errorBuilder:
                     (_, __, ___) =>
                         Container(color: scheme.surfaceContainerHighest),
@@ -3049,7 +3670,11 @@ class _PromotionPreview extends StatelessWidget {
         children: [
           if (promotion.coverImageUrl != null)
             Positioned.fill(
-              child: Image.network(promotion.coverImageUrl!, fit: BoxFit.cover),
+              child: Image.network(
+                promotion.coverImageUrl!,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+              ),
             )
           else
             Positioned.fill(
@@ -3412,6 +4037,7 @@ class _PromotionDetailPreviewHero extends StatelessWidget {
             Image.network(
               promotion.coverImageUrl!,
               fit: BoxFit.cover,
+              webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
               errorBuilder:
                   (_, __, ___) => DecoratedBox(
                     decoration: BoxDecoration(
@@ -3712,6 +4338,7 @@ class _PromotionPreviewImageSection extends StatelessWidget {
           child: Image.network(
             section.imageUrl!,
             fit: BoxFit.cover,
+            webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
             errorBuilder:
                 (_, __, ___) => Container(
                   height: 190,
@@ -3729,6 +4356,2677 @@ class _PromotionPreviewImageSection extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _LandingTemplatePreview extends StatelessWidget {
+  const _LandingTemplatePreview({
+    required this.promotion,
+    required this.landing,
+    required this.salonName,
+    required this.salonPhone,
+    required this.salonEmail,
+  });
+
+  final Promotion promotion;
+  final PromotionWebLanding landing;
+  final String salonName;
+  final String salonPhone;
+  final String salonEmail;
+
+  Color get _brown => Color((promotion.themeColor ?? 0xFF6D3D32) | 0xFF000000);
+  Color get _terracotta => Color.lerp(_brown, const Color(0xFFA75F4A), 0.64)!;
+  Color get _gold => Color.lerp(_brown, const Color(0xFFEFAE73), 0.78)!;
+  static const Color _cream = Color(0xFFFAF6F3);
+  static const Color _paper = Color(0xFFF7F3EF);
+  static const Color _ink = Color(0xFF281D19);
+  static const Color _line = Color(0xFFDDD0C8);
+
+  TextStyle _headingStyle({
+    required double size,
+    Color color = _ink,
+    double height = 1.05,
+    FontStyle? fontStyle,
+  }) {
+    final base = TextStyle(
+      color: color,
+      fontSize: size,
+      height: height,
+      fontWeight: FontWeight.w500,
+      fontStyle: fontStyle,
+    );
+    if (landing.fontFamily == 'playfairDmSans') {
+      return GoogleFonts.playfairDisplay(textStyle: base);
+    }
+    if (landing.fontFamily == 'system') return base;
+    return base.copyWith(fontFamily: landing.fontFamily);
+  }
+
+  TextStyle _bodyStyle({
+    double size = 11,
+    Color color = _ink,
+    double height = 1.5,
+    FontWeight? weight,
+    double? letterSpacing,
+  }) {
+    final base = TextStyle(
+      color: color,
+      fontSize: size,
+      height: height,
+      fontWeight: weight,
+      letterSpacing: letterSpacing,
+    );
+    if (landing.fontFamily == 'playfairDmSans') {
+      return GoogleFonts.dmSans(textStyle: base);
+    }
+    if (landing.fontFamily == 'system') return base;
+    return base.copyWith(fontFamily: landing.fontFamily);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final templateId = PromotionLandingTemplates.normalize(landing.templateId);
+    late final Widget preview;
+    switch (templateId) {
+      case PromotionLandingTemplates.minimalGlow:
+        preview = _buildMinimalGlow();
+        break;
+      case PromotionLandingTemplates.studioPop:
+        preview = _buildStudioPop();
+        break;
+      case PromotionLandingTemplates.botanicalRitual:
+        preview = _buildBotanicalRitual();
+        break;
+      case PromotionLandingTemplates.editorialBeauty:
+        preview = _buildEditorialBeauty();
+        break;
+      default:
+        preview = _buildEditorialBeauty();
+        break;
+    }
+    return KeyedSubtree(
+      key: ValueKey<String>('landing-preview-$templateId'),
+      child: preview,
+    );
+  }
+
+  Widget _buildEditorialBeauty() {
+    return ColoredBox(
+      color: const Color(0xFFE9E7E3),
+      child: Column(
+        children: [
+          Container(
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            color: const Color(0xFFF3F3F1),
+            child: Row(
+              children: [
+                for (final color in const [
+                  Color(0xFFFF6B60),
+                  Color(0xFFFFBE3E),
+                  Color(0xFF2DCC55),
+                ]) ...[
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    height: 20,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text(
+                      'youbook.civiapp.it/s/.../promozioni/${landing.slug}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF777777),
+                        fontSize: 8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _previewHero(),
+                  for (final section in promotion.sections.take(2))
+                    _previewSection(section),
+                  if (landing.offerPrice?.trim().isNotEmpty == true ||
+                      promotion.discountPercentage > 0)
+                    _previewOffer(),
+                  _previewBooking(),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 18,
+                    ),
+                    color: _ink,
+                    child: Text(
+                      salonName.toUpperCase(),
+                      style: _headingStyle(
+                        size: 11,
+                        color: Colors.white,
+                      ).copyWith(letterSpacing: 2),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewHero() {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 260),
+      color: _brown,
+      child: Stack(
+        children: [
+          if (promotion.coverImageUrl?.trim().isNotEmpty == true) ...[
+            Positioned.fill(
+              child: Image.network(
+                promotion.coverImageUrl!,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+            Positioned.fill(
+              child: ColoredBox(color: _brown.withValues(alpha: 0.62)),
+            ),
+          ],
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.65, -0.2),
+                  radius: 0.95,
+                  colors: [
+                    _terracotta.withValues(alpha: 0.58),
+                    _brown.withValues(alpha: 0.16),
+                    _ink.withValues(alpha: 0.58),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right: -30,
+            top: 30,
+            child: Container(
+              width: 190,
+              height: 190,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: _gold.withValues(alpha: 0.3)),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 18, 28, 34),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        salonName.toUpperCase(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _headingStyle(
+                          size: 10,
+                          color: Colors.white,
+                        ).copyWith(letterSpacing: 2),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 11,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: _gold),
+                      ),
+                      child: Text(
+                        'RICHIEDI ORA',
+                        style: _bodyStyle(
+                          size: 7,
+                          color: Colors.white,
+                          weight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 47),
+                Row(
+                  children: [
+                    Container(width: 22, height: 1, color: _gold),
+                    const SizedBox(width: 9),
+                    Text(
+                      landing.eyebrow.toUpperCase(),
+                      style: _bodyStyle(
+                        size: 7,
+                        color: Colors.white.withValues(alpha: 0.82),
+                        weight: FontWeight.w700,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 13),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 510),
+                  child: Text(
+                    promotion.title.trim().isEmpty
+                        ? 'Titolo della promozione'
+                        : promotion.title,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: _headingStyle(size: 39, color: Colors.white),
+                  ),
+                ),
+                if (promotion.subtitle?.trim().isNotEmpty == true) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    promotion.subtitle!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: _headingStyle(
+                      size: 17,
+                      color: _gold,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewSection(PromotionSection section) {
+    if (section.layout == PromotionSectionLayout.quote) {
+      return Container(
+        width: double.infinity,
+        color: _terracotta,
+        padding: const EdgeInsets.symmetric(horizontal: 58, vertical: 32),
+        child: Column(
+          children: [
+            if (section.title?.trim().isNotEmpty == true)
+              Text(
+                section.title!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: _headingStyle(size: 23, color: Colors.white),
+              ),
+            if (section.text?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 10),
+              Text(
+                section.text!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: _bodyStyle(
+                  size: 9,
+                  color: Colors.white.withValues(alpha: 0.84),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      color: section.order.isEven ? _cream : _paper,
+      padding: const EdgeInsets.symmetric(horizontal: 46, vertical: 36),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              section.title?.trim().isNotEmpty == true
+                  ? section.title!
+                  : 'Sezione della promozione',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: _headingStyle(size: 22, color: _brown),
+            ),
+          ),
+          const SizedBox(width: 32),
+          Expanded(
+            flex: 6,
+            child: Text(
+              section.text?.trim().isNotEmpty == true
+                  ? section.text!
+                  : 'Il contenuto configurato apparirà in questa sezione della landing page.',
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: _bodyStyle(
+                size: 9,
+                color: _ink.withValues(alpha: 0.68),
+                height: 1.7,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewOffer() {
+    final price =
+        landing.offerPrice?.trim().isNotEmpty == true
+            ? landing.offerPrice!
+            : '-${promotion.discountPercentage.round()}%';
+    return Container(
+      width: double.infinity,
+      color: _brown,
+      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 34),
+      child: Column(
+        children: [
+          Text(
+            'LA TUA OCCASIONE',
+            style: _bodyStyle(
+              size: 7,
+              color: _gold,
+              weight: FontWeight.w700,
+              letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(price, style: _headingStyle(size: 42, color: _gold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewBooking() {
+    return Container(
+      width: double.infinity,
+      color: _cream,
+      padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 42),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                landing.eyebrow.toUpperCase(),
+                style: _bodyStyle(
+                  size: 7,
+                  color: _terracotta,
+                  weight: FontWeight.w700,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 11),
+              Text(
+                landing.formTitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: _headingStyle(size: 30, color: _brown),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                landing.formDescription,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 9,
+                  color: _ink.withValues(alpha: 0.66),
+                  height: 1.6,
+                ),
+              ),
+              if (salonPhone.isNotEmpty || salonEmail.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  [
+                    salonPhone,
+                    salonEmail,
+                  ].where((value) => value.isNotEmpty).join('  ·  '),
+                  style: _bodyStyle(size: 8, color: _brown),
+                ),
+              ],
+            ],
+          );
+          final form = Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: _gold, width: 2)),
+              boxShadow: [
+                BoxShadow(
+                  color: _brown.withValues(alpha: 0.09),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                for (final label in const [
+                  'NOME E COGNOME',
+                  'NUMERO DI TELEFONO',
+                  'EMAIL (FACOLTATIVA)',
+                ]) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      style: _bodyStyle(
+                        size: 6,
+                        color: _ink.withValues(alpha: 0.48),
+                        weight: FontWeight.w600,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  Container(height: 1, color: _line),
+                  const SizedBox(height: 14),
+                ],
+                if (landing.interestOptions.isNotEmpty) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'SONO INTERESSATA/O A:',
+                      style: _bodyStyle(
+                        size: 6,
+                        color: _ink.withValues(alpha: 0.48),
+                        weight: FontWeight.w600,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final option in landing.interestOptions.take(3))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 7),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 11,
+                            height: 11,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _ink.withValues(alpha: 0.65),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              option,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: _bodyStyle(size: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 7),
+                Container(
+                  width: double.infinity,
+                  height: 30,
+                  alignment: Alignment.center,
+                  color: _brown,
+                  child: Text(
+                    landing.submitLabel.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _bodyStyle(
+                      size: 7,
+                      color: Colors.white,
+                      weight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (constraints.maxWidth < 560) {
+            return Column(children: [copy, const SizedBox(height: 24), form]);
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: copy),
+              const SizedBox(width: 45),
+              Expanded(child: form),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String get _previewTitle =>
+      promotion.title.trim().isEmpty
+          ? 'Titolo della promozione'
+          : promotion.title.trim();
+
+  String get _previewOfferPrice {
+    final configured = landing.offerPrice?.trim();
+    if (configured?.isNotEmpty == true) return configured!;
+    if (promotion.discountPercentage > 0) {
+      return '-${promotion.discountPercentage.round()}%';
+    }
+    return 'OFFERTA SPECIALE';
+  }
+
+  String _sectionPreviewTitle(PromotionSection section) {
+    final title = section.title?.trim();
+    return title?.isNotEmpty == true ? title! : 'Il tuo momento di bellezza';
+  }
+
+  String _sectionPreviewBody(PromotionSection section) {
+    final text = section.text?.trim();
+    if (text?.isNotEmpty == true) return text!;
+    final caption = section.caption?.trim();
+    if (caption?.isNotEmpty == true) return caption!;
+    return 'Scopri tutti i dettagli della promozione e lasciati guidare dal salone.';
+  }
+
+  Color _templateSeed(int fallback) =>
+      Color((promotion.themeColor ?? fallback) | 0xFF000000);
+
+  Color _onColor(Color background) =>
+      ThemeData.estimateBrightnessForColor(background) == Brightness.dark
+          ? Colors.white
+          : const Color(0xFF171717);
+
+  Widget _templateFrame({
+    required Color chromeColor,
+    required Color canvasColor,
+    required Widget child,
+  }) {
+    return ColoredBox(
+      color: canvasColor,
+      child: Column(
+        children: [
+          _templateBrowserBar(color: chromeColor),
+          Expanded(child: SingleChildScrollView(child: child)),
+        ],
+      ),
+    );
+  }
+
+  Widget _templateBrowserBar({required Color color}) {
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      color: color,
+      child: Row(
+        children: [
+          for (final dotColor in const <Color>[
+            Color(0xFFFF6B60),
+            Color(0xFFFFBE3E),
+            Color(0xFF2DCC55),
+          ]) ...[
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+          ],
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 20,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(
+                'youbook.civiapp.it/s/.../promozioni/${landing.slug}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF777777), fontSize: 8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _templateImage({
+    required String? imageUrl,
+    required double height,
+    required BorderRadius borderRadius,
+    required List<Color> fallbackColors,
+    required Color iconColor,
+  }) {
+    return ClipRRect(
+      borderRadius: borderRadius,
+      child: SizedBox(
+        width: double.infinity,
+        height: height,
+        child:
+            imageUrl?.trim().isNotEmpty == true
+                ? Image.network(
+                  imageUrl!,
+                  fit: BoxFit.cover,
+                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                  errorBuilder:
+                      (_, __, ___) => _templateImageFallback(
+                        colors: fallbackColors,
+                        iconColor: iconColor,
+                      ),
+                )
+                : _templateImageFallback(
+                  colors: fallbackColors,
+                  iconColor: iconColor,
+                ),
+      ),
+    );
+  }
+
+  Widget _templateImageFallback({
+    required List<Color> colors,
+    required Color iconColor,
+  }) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            right: -24,
+            top: -30,
+            child: Container(
+              width: 118,
+              height: 118,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: iconColor.withValues(alpha: 0.2)),
+              ),
+            ),
+          ),
+          Icon(
+            Icons.spa_outlined,
+            color: iconColor.withValues(alpha: 0.72),
+            size: 40,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _templateForm({
+    required Color surface,
+    required Color ink,
+    required Color line,
+    required Color button,
+    required Color onButton,
+    required Color accent,
+    required double radius,
+    bool boxedFields = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: line),
+        boxShadow: [
+          BoxShadow(
+            color: ink.withValues(alpha: 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final label in const <String>[
+            'NOME E COGNOME',
+            'NUMERO DI TELEFONO',
+            'EMAIL (FACOLTATIVA)',
+          ]) ...[
+            Text(
+              label,
+              style: _bodyStyle(
+                size: 6,
+                color: ink.withValues(alpha: 0.56),
+                weight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 9),
+            Container(
+              height: boxedFields ? 26 : 1,
+              decoration: BoxDecoration(
+                color: boxedFields ? line.withValues(alpha: 0.35) : line,
+                borderRadius:
+                    boxedFields ? BorderRadius.circular(8) : BorderRadius.zero,
+                border: boxedFields ? Border.all(color: line) : null,
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (landing.interestOptions.isNotEmpty) ...[
+            Text(
+              'SONO INTERESSATA/O A:',
+              style: _bodyStyle(
+                size: 6,
+                color: ink.withValues(alpha: 0.56),
+                weight: FontWeight.w700,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final option in landing.interestOptions.take(3))
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(radius > 0 ? 99 : 0),
+                      border: Border.all(color: accent.withValues(alpha: 0.45)),
+                    ),
+                    child: Text(
+                      option,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _bodyStyle(size: 7, color: ink),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+          ],
+          Container(
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: button,
+              borderRadius: BorderRadius.circular(radius > 0 ? 99 : 0),
+            ),
+            child: Text(
+              landing.submitLabel.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _bodyStyle(
+                size: 7,
+                color: onButton,
+                weight: FontWeight.w800,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMinimalGlow() {
+    const background = Color(0xFFF7F8F5);
+    const surface = Colors.white;
+    const ink = Color(0xFF17201D);
+    const softSage = Color(0xFFDCE6DF);
+    const line = Color(0xFFD8DEDA);
+    final primary = _templateSeed(0xFF48675D);
+    final onPrimary = _onColor(primary);
+    final accent = Color.lerp(primary, const Color(0xFF95AA9F), 0.62)!;
+    return _templateFrame(
+      chromeColor: const Color(0xFFF0F2EE),
+      canvasColor: background,
+      child: Column(
+        children: [
+          _minimalNavigation(primary: primary, ink: ink, line: line),
+          _minimalHero(
+            background: background,
+            surface: surface,
+            ink: ink,
+            primary: primary,
+            onPrimary: onPrimary,
+            accent: accent,
+          ),
+          for (final indexed in promotion.sections.take(2).indexed)
+            _minimalSection(
+              section: indexed.$2,
+              index: indexed.$1,
+              background: background,
+              surface: surface,
+              ink: ink,
+              primary: primary,
+              softSage: softSage,
+              line: line,
+            ),
+          _minimalOffer(
+            background: background,
+            surface: surface,
+            ink: ink,
+            primary: primary,
+            onPrimary: onPrimary,
+            accent: accent,
+            line: line,
+          ),
+          _minimalBooking(
+            surface: surface,
+            ink: ink,
+            primary: primary,
+            onPrimary: onPrimary,
+            accent: accent,
+            softSage: softSage,
+            line: line,
+          ),
+          _minimalFooter(primary: primary, ink: ink, line: line),
+        ],
+      ),
+    );
+  }
+
+  Widget _minimalNavigation({
+    required Color primary,
+    required Color ink,
+    required Color line,
+  }) {
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 26),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: line)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: primary, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              salonName.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _bodyStyle(
+                size: 9,
+                color: ink,
+                weight: FontWeight.w800,
+                letterSpacing: 1.8,
+              ),
+            ),
+          ),
+          Text(
+            'RICHIEDI',
+            style: _bodyStyle(
+              size: 7,
+              color: primary,
+              weight: FontWeight.w800,
+              letterSpacing: 1.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _minimalHero({
+    required Color background,
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color onPrimary,
+    required Color accent,
+  }) {
+    return Container(
+      color: background,
+      padding: const EdgeInsets.fromLTRB(28, 30, 28, 38),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 620;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                landing.eyebrow.toUpperCase(),
+                style: _bodyStyle(
+                  size: 7,
+                  color: primary,
+                  weight: FontWeight.w800,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _previewTitle,
+                maxLines: compact ? 3 : 4,
+                overflow: TextOverflow.ellipsis,
+                style: _headingStyle(
+                  size: compact ? 34 : 44,
+                  color: ink,
+                  height: 0.98,
+                ).copyWith(fontWeight: FontWeight.w700, letterSpacing: -1),
+              ),
+              if (promotion.subtitle?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 13),
+                Text(
+                  promotion.subtitle!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 12,
+                    color: ink.withValues(alpha: 0.66),
+                    height: 1.45,
+                  ),
+                ),
+              ],
+              if (promotion.tagline?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 9),
+                Text(
+                  promotion.tagline!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 9,
+                    color: ink.withValues(alpha: 0.58),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: primary,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  landing.submitLabel.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 7,
+                    color: onPrimary,
+                    weight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+            ],
+          );
+          final image = DecoratedBox(
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(26),
+              boxShadow: [
+                BoxShadow(
+                  color: primary.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: _templateImage(
+              imageUrl: promotion.coverImageUrl,
+              height: compact ? 190 : 270,
+              borderRadius: BorderRadius.circular(26),
+              fallbackColors: [
+                accent.withValues(alpha: 0.35),
+                primary.withValues(alpha: 0.82),
+              ],
+              iconColor: onPrimary,
+            ),
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [copy, const SizedBox(height: 24), image],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(flex: 9, child: copy),
+              const SizedBox(width: 34),
+              Expanded(flex: 11, child: image),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _minimalSection({
+    required PromotionSection section,
+    required int index,
+    required Color background,
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color softSage,
+    required Color line,
+  }) {
+    if (section.layout == PromotionSectionLayout.quote) {
+      return Container(
+        width: double.infinity,
+        color: softSage,
+        padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 34),
+        child: Column(
+          children: [
+            Icon(Icons.format_quote_rounded, color: primary, size: 28),
+            const SizedBox(height: 8),
+            Text(
+              _sectionPreviewTitle(section),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _headingStyle(
+                size: 24,
+                color: ink,
+              ).copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _sectionPreviewBody(section),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _bodyStyle(size: 9, color: ink.withValues(alpha: 0.66)),
+            ),
+          ],
+        ),
+      );
+    }
+    final hasImage =
+        section.type == PromotionSectionType.image &&
+        section.imageUrl?.trim().isNotEmpty == true;
+    return Container(
+      color: index.isEven ? surface : background,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 34),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(width: 34, height: 2, color: primary),
+              const SizedBox(height: 14),
+              Text(
+                _sectionPreviewTitle(section),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: _headingStyle(
+                  size: 24,
+                  color: ink,
+                ).copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 11),
+              Text(
+                _sectionPreviewBody(section),
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 9,
+                  color: ink.withValues(alpha: 0.66),
+                  height: 1.65,
+                ),
+              ),
+            ],
+          );
+          if (!hasImage) return copy;
+          final image = _templateImage(
+            imageUrl: section.imageUrl,
+            height: compact ? 150 : 178,
+            borderRadius: BorderRadius.circular(20),
+            fallbackColors: [softSage, line],
+            iconColor: primary,
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [image, const SizedBox(height: 22), copy],
+            );
+          }
+          final imageFirst = index.isEven;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: imageFirst ? image : copy),
+              const SizedBox(width: 30),
+              Expanded(child: imageFirst ? copy : image),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _minimalOffer({
+    required Color background,
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color onPrimary,
+    required Color accent,
+    required Color line,
+  }) {
+    return Container(
+      color: background,
+      padding: const EdgeInsets.all(28),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: line),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 500;
+            final copy = Column(
+              crossAxisAlignment:
+                  compact
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'UN’OCCASIONE PER TE',
+                  style: _bodyStyle(
+                    size: 7,
+                    color: accent,
+                    weight: FontWeight.w800,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _previewTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: compact ? TextAlign.center : TextAlign.start,
+                  style: _headingStyle(
+                    size: 20,
+                    color: ink,
+                  ).copyWith(fontWeight: FontWeight.w600),
+                ),
+              ],
+            );
+            final price = Text(
+              _previewOfferPrice,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _headingStyle(
+                size: _previewOfferPrice.length > 12 ? 20 : 34,
+                color: primary,
+              ).copyWith(fontWeight: FontWeight.w800),
+            );
+            final button = Container(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+              decoration: BoxDecoration(
+                color: primary,
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                'RICHIEDI',
+                style: _bodyStyle(
+                  size: 7,
+                  color: onPrimary,
+                  weight: FontWeight.w800,
+                  letterSpacing: 1,
+                ),
+              ),
+            );
+            if (compact) {
+              return Column(
+                children: [
+                  copy,
+                  const SizedBox(height: 14),
+                  price,
+                  const SizedBox(height: 14),
+                  button,
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 5, child: copy),
+                const SizedBox(width: 18),
+                Expanded(flex: 3, child: price),
+                const SizedBox(width: 18),
+                button,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _minimalBooking({
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color onPrimary,
+    required Color accent,
+    required Color softSage,
+    required Color line,
+  }) {
+    return Container(
+      color: softSage,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 38),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                landing.eyebrow.toUpperCase(),
+                style: _bodyStyle(
+                  size: 7,
+                  color: primary,
+                  weight: FontWeight.w800,
+                  letterSpacing: 1.8,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                landing.formTitle,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: _headingStyle(
+                  size: 28,
+                  color: ink,
+                ).copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                landing.formDescription,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 9,
+                  color: ink.withValues(alpha: 0.66),
+                  height: 1.6,
+                ),
+              ),
+              if (salonPhone.isNotEmpty || salonEmail.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  <String>[
+                    salonPhone,
+                    salonEmail,
+                  ].where((value) => value.isNotEmpty).join('  ·  '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(size: 8, color: primary),
+                ),
+              ],
+            ],
+          );
+          final form = _templateForm(
+            surface: surface,
+            ink: ink,
+            line: line,
+            button: primary,
+            onButton: onPrimary,
+            accent: accent,
+            radius: 18,
+            boxedFields: true,
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [copy, const SizedBox(height: 24), form],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: copy),
+              const SizedBox(width: 36),
+              Expanded(child: form),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _minimalFooter({
+    required Color primary,
+    required Color ink,
+    required Color line,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: line)),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 18,
+        runSpacing: 8,
+        children: [
+          Text(
+            salonName.toUpperCase(),
+            style: _bodyStyle(
+              size: 8,
+              color: ink,
+              weight: FontWeight.w800,
+              letterSpacing: 1.5,
+            ),
+          ),
+          Text(
+            <String>[
+              salonPhone,
+              salonEmail,
+            ].where((value) => value.isNotEmpty).join('  ·  '),
+            style: _bodyStyle(size: 7, color: primary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStudioPop() {
+    const background = Color(0xFFFFF3E8);
+    const surface = Colors.white;
+    const ink = Color(0xFF171717);
+    const yellow = Color(0xFFFFC857);
+    const navy = Color(0xFF22304A);
+    const line = Color(0xFFE9D9CB);
+    final primary = _templateSeed(0xFFE8513D);
+    final onPrimary = _onColor(primary);
+    return _templateFrame(
+      chromeColor: const Color(0xFFF4E6DA),
+      canvasColor: background,
+      child: Column(
+        children: [
+          _studioNavigation(navy: navy, yellow: yellow),
+          _studioHero(
+            primary: primary,
+            onPrimary: onPrimary,
+            yellow: yellow,
+            navy: navy,
+            ink: ink,
+          ),
+          for (final indexed in promotion.sections.take(2).indexed)
+            _studioSection(
+              section: indexed.$2,
+              index: indexed.$1,
+              background: background,
+              surface: surface,
+              ink: ink,
+              primary: primary,
+              onPrimary: onPrimary,
+              yellow: yellow,
+              navy: navy,
+              line: line,
+            ),
+          _studioOffer(
+            primary: primary,
+            onPrimary: onPrimary,
+            yellow: yellow,
+            navy: navy,
+          ),
+          _studioBooking(
+            background: background,
+            surface: surface,
+            ink: ink,
+            primary: primary,
+            onPrimary: onPrimary,
+            yellow: yellow,
+            navy: navy,
+            line: line,
+          ),
+          _studioFooter(navy: navy, yellow: yellow),
+        ],
+      ),
+    );
+  }
+
+  Widget _studioNavigation({required Color navy, required Color yellow}) {
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      color: navy,
+      child: Row(
+        children: [
+          Container(width: 14, height: 14, color: yellow),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              salonName.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _bodyStyle(
+                size: 9,
+                color: Colors.white,
+                weight: FontWeight.w900,
+                letterSpacing: 1.6,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+            color: yellow,
+            child: Text(
+              'LET’S GLOW',
+              style: _bodyStyle(
+                size: 7,
+                color: navy,
+                weight: FontWeight.w900,
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _studioHero({
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+    required Color ink,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 620;
+        return Container(
+          color: primary,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              Positioned(
+                right: compact ? -46 : 26,
+                top: compact ? 34 : -38,
+                child: Transform.rotate(
+                  angle: -0.12,
+                  child: Container(
+                    width: compact ? 110 : 178,
+                    height: compact ? 110 : 178,
+                    color: yellow.withValues(alpha: 0.92),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 30, 28, 34),
+                child:
+                    compact
+                        ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _studioHeroCopy(
+                              primary: primary,
+                              onPrimary: onPrimary,
+                              yellow: yellow,
+                              navy: navy,
+                              compact: true,
+                            ),
+                            const SizedBox(height: 24),
+                            _studioHeroImage(
+                              primary: primary,
+                              onPrimary: onPrimary,
+                              yellow: yellow,
+                              navy: navy,
+                              height: 185,
+                            ),
+                          ],
+                        )
+                        : Row(
+                          children: [
+                            Expanded(
+                              flex: 11,
+                              child: _studioHeroCopy(
+                                primary: primary,
+                                onPrimary: onPrimary,
+                                yellow: yellow,
+                                navy: navy,
+                                compact: false,
+                              ),
+                            ),
+                            const SizedBox(width: 26),
+                            Expanded(
+                              flex: 9,
+                              child: _studioHeroImage(
+                                primary: primary,
+                                onPrimary: onPrimary,
+                                yellow: yellow,
+                                navy: navy,
+                                height: 260,
+                              ),
+                            ),
+                          ],
+                        ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _studioHeroCopy({
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+    required bool compact,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          color: navy,
+          child: Text(
+            landing.eyebrow.toUpperCase(),
+            style: _bodyStyle(
+              size: 7,
+              color: Colors.white,
+              weight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          _previewTitle.toUpperCase(),
+          maxLines: compact ? 3 : 4,
+          overflow: TextOverflow.ellipsis,
+          style: _bodyStyle(
+            size: compact ? 34 : 43,
+            color: onPrimary,
+            height: 0.9,
+            weight: FontWeight.w900,
+            letterSpacing: -1.4,
+          ),
+        ),
+        if (promotion.subtitle?.trim().isNotEmpty == true) ...[
+          const SizedBox(height: 13),
+          Text(
+            promotion.subtitle!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _bodyStyle(
+              size: 11,
+              color: onPrimary.withValues(alpha: 0.84),
+              weight: FontWeight.w600,
+            ),
+          ),
+        ],
+        if (promotion.tagline?.trim().isNotEmpty == true) ...[
+          const SizedBox(height: 8),
+          Text(
+            promotion.tagline!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _bodyStyle(
+              size: 8,
+              color: onPrimary.withValues(alpha: 0.72),
+            ),
+          ),
+        ],
+        const SizedBox(height: 19),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          color: yellow,
+          child: Text(
+            '${landing.submitLabel.toUpperCase()}  →',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: _bodyStyle(
+              size: 7,
+              color: navy,
+              weight: FontWeight.w900,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _studioHeroImage({
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+    required double height,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 10, bottom: 10),
+          child: Container(height: height, color: navy),
+        ),
+        _templateImage(
+          imageUrl: promotion.coverImageUrl,
+          height: height,
+          borderRadius: BorderRadius.zero,
+          fallbackColors: [yellow, primary],
+          iconColor: onPrimary,
+        ),
+        Positioned(
+          right: -8,
+          bottom: -8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+            color: yellow,
+            child: Text(
+              'NEW',
+              style: _bodyStyle(
+                size: 7,
+                color: navy,
+                weight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _studioSection({
+    required PromotionSection section,
+    required int index,
+    required Color background,
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+    required Color line,
+  }) {
+    if (section.layout == PromotionSectionLayout.quote) {
+      return Container(
+        width: double.infinity,
+        color: navy,
+        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 36),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: -12,
+              child: Text('“', style: _headingStyle(size: 74, color: yellow)),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                children: [
+                  Text(
+                    _sectionPreviewTitle(section).toUpperCase(),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: _bodyStyle(
+                      size: 24,
+                      color: Colors.white,
+                      height: 1,
+                      weight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _sectionPreviewBody(section),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: _bodyStyle(
+                      size: 9,
+                      color: Colors.white.withValues(alpha: 0.74),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final hasImage =
+        section.type == PromotionSectionType.image &&
+        section.imageUrl?.trim().isNotEmpty == true;
+    return Container(
+      color: index.isEven ? background : surface,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 32),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final copy = Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: surface,
+              border: Border(
+                top: BorderSide(
+                  color: index.isEven ? primary : yellow,
+                  width: 5,
+                ),
+                right: BorderSide(color: line),
+                bottom: BorderSide(color: line),
+                left: BorderSide(color: line),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '0${index + 1} / FEATURE',
+                  style: _bodyStyle(
+                    size: 7,
+                    color: primary,
+                    weight: FontWeight.w900,
+                    letterSpacing: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 11),
+                Text(
+                  _sectionPreviewTitle(section).toUpperCase(),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 22,
+                    color: ink,
+                    height: 1,
+                    weight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _sectionPreviewBody(section),
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 9,
+                    color: ink.withValues(alpha: 0.65),
+                    height: 1.55,
+                  ),
+                ),
+              ],
+            ),
+          );
+          if (!hasImage) return copy;
+          final image = _templateImage(
+            imageUrl: section.imageUrl,
+            height: compact ? 158 : 200,
+            borderRadius: BorderRadius.zero,
+            fallbackColors: [yellow, primary],
+            iconColor: navy,
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [image, const SizedBox(height: 14), copy],
+            );
+          }
+          final imageFirst = index.isOdd;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: imageFirst ? image : copy),
+              const SizedBox(width: 16),
+              Expanded(child: imageFirst ? copy : image),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _studioOffer({
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+  }) {
+    return Container(
+      width: double.infinity,
+      color: yellow,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 30),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 500;
+          final label = Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            color: navy,
+            child: Text(
+              'DROP SPECIALE',
+              style: _bodyStyle(
+                size: 7,
+                color: Colors.white,
+                weight: FontWeight.w900,
+                letterSpacing: 1.3,
+              ),
+            ),
+          );
+          final title = Text(
+            _previewTitle.toUpperCase(),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: compact ? TextAlign.center : TextAlign.start,
+            style: _bodyStyle(
+              size: 19,
+              color: navy,
+              height: 1,
+              weight: FontWeight.w900,
+            ),
+          );
+          final price = Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: primary,
+            child: Text(
+              _previewOfferPrice,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _bodyStyle(
+                size: _previewOfferPrice.length > 12 ? 18 : 30,
+                color: onPrimary,
+                height: 1,
+                weight: FontWeight.w900,
+              ),
+            ),
+          );
+          if (compact) {
+            return Column(
+              children: [
+                label,
+                const SizedBox(height: 12),
+                title,
+                const SizedBox(height: 14),
+                price,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              label,
+              const SizedBox(width: 16),
+              Expanded(child: title),
+              const SizedBox(width: 18),
+              price,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _studioBooking({
+    required Color background,
+    required Color surface,
+    required Color ink,
+    required Color primary,
+    required Color onPrimary,
+    required Color yellow,
+    required Color navy,
+    required Color line,
+  }) {
+    return Container(
+      color: background,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 38),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: primary,
+                child: Text(
+                  landing.eyebrow.toUpperCase(),
+                  style: _bodyStyle(
+                    size: 7,
+                    color: onPrimary,
+                    weight: FontWeight.w900,
+                    letterSpacing: 1.3,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 13),
+              Text(
+                landing.formTitle.toUpperCase(),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 28,
+                  color: navy,
+                  height: 0.98,
+                  weight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 11),
+              Text(
+                landing.formDescription,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 9,
+                  color: ink.withValues(alpha: 0.68),
+                  height: 1.55,
+                ),
+              ),
+              if (salonPhone.isNotEmpty || salonEmail.isNotEmpty) ...[
+                const SizedBox(height: 15),
+                Text(
+                  <String>[
+                    salonPhone,
+                    salonEmail,
+                  ].where((value) => value.isNotEmpty).join('  /  '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 8,
+                    color: primary,
+                    weight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ],
+          );
+          final form = Container(
+            decoration: BoxDecoration(
+              color: navy,
+              boxShadow: [
+                BoxShadow(
+                  color: navy.withValues(alpha: 0.18),
+                  blurRadius: 20,
+                  offset: const Offset(7, 9),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    color: yellow,
+                    child: Text(
+                      'YOUR MOVE',
+                      style: _bodyStyle(
+                        size: 6,
+                        color: navy,
+                        weight: FontWeight.w900,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _templateForm(
+                  surface: surface,
+                  ink: ink,
+                  line: line,
+                  button: primary,
+                  onButton: onPrimary,
+                  accent: yellow,
+                  radius: 0,
+                  boxedFields: true,
+                ),
+              ],
+            ),
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [copy, const SizedBox(height: 24), form],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: copy),
+              const SizedBox(width: 32),
+              Expanded(child: form),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _studioFooter({required Color navy, required Color yellow}) {
+    return Container(
+      width: double.infinity,
+      color: navy,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 18,
+        runSpacing: 8,
+        children: [
+          Text(
+            salonName.toUpperCase(),
+            style: _bodyStyle(
+              size: 9,
+              color: Colors.white,
+              weight: FontWeight.w900,
+              letterSpacing: 1.4,
+            ),
+          ),
+          Text(
+            <String>[
+              salonPhone,
+              salonEmail,
+            ].where((value) => value.isNotEmpty).join('  /  '),
+            style: _bodyStyle(size: 7, color: yellow, weight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBotanicalRitual() {
+    const background = Color(0xFFF3F0E7);
+    const paper = Color(0xFFE6EBDD);
+    const ink = Color(0xFF1D2B25);
+    const sage = Color(0xFF9DAF98);
+    const copper = Color(0xFFB97B55);
+    const line = Color(0xFFD2D6C9);
+    final forest = _templateSeed(0xFF315B4A);
+    final onForest = _onColor(forest);
+    return _templateFrame(
+      chromeColor: const Color(0xFFE8E7E0),
+      canvasColor: background,
+      child: Column(
+        children: [
+          _botanicalNavigation(forest: forest, copper: copper),
+          _botanicalHero(
+            forest: forest,
+            onForest: onForest,
+            sage: sage,
+            copper: copper,
+          ),
+          for (final indexed in promotion.sections.take(2).indexed)
+            _botanicalSection(
+              section: indexed.$2,
+              index: indexed.$1,
+              background: background,
+              paper: paper,
+              ink: ink,
+              forest: forest,
+              sage: sage,
+              copper: copper,
+              line: line,
+            ),
+          _botanicalOffer(
+            background: background,
+            ink: ink,
+            forest: forest,
+            onForest: onForest,
+            copper: copper,
+            line: line,
+          ),
+          _botanicalBooking(
+            background: background,
+            paper: paper,
+            ink: ink,
+            forest: forest,
+            onForest: onForest,
+            sage: sage,
+            copper: copper,
+            line: line,
+          ),
+          _botanicalFooter(forest: forest, onForest: onForest, copper: copper),
+        ],
+      ),
+    );
+  }
+
+  Widget _botanicalNavigation({required Color forest, required Color copper}) {
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 26),
+      color: const Color(0xFFF3F0E7),
+      child: Row(
+        children: [
+          Icon(Icons.eco_outlined, size: 17, color: copper),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              salonName.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _headingStyle(
+                size: 10,
+                color: forest,
+              ).copyWith(fontWeight: FontWeight.w600, letterSpacing: 2),
+            ),
+          ),
+          Container(width: 34, height: 1, color: copper),
+          const SizedBox(width: 9),
+          Text(
+            'RITUALE',
+            style: _bodyStyle(
+              size: 7,
+              color: forest,
+              weight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _botanicalHero({
+    required Color forest,
+    required Color onForest,
+    required Color sage,
+    required Color copper,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final height = compact ? 360.0 : 330.0;
+        return SizedBox(
+          width: double.infinity,
+          height: height,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _templateImage(
+                imageUrl: promotion.coverImageUrl,
+                height: height,
+                borderRadius: BorderRadius.zero,
+                fallbackColors: [sage, forest],
+                iconColor: onForest,
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      forest.withValues(alpha: 0.12),
+                      forest.withValues(alpha: 0.9),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                right: compact ? -74 : 30,
+                top: compact ? 34 : 38,
+                child: Container(
+                  width: compact ? 150 : 190,
+                  height: compact ? 150 : 190,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.24),
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(30, 34, 30, 34),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: compact ? constraints.maxWidth - 60 : 510,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(width: 28, height: 1, color: copper),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Text(
+                                landing.eyebrow.toUpperCase(),
+                                maxLines: 2,
+                                style: _bodyStyle(
+                                  size: 7,
+                                  color: Colors.white.withValues(alpha: 0.88),
+                                  weight: FontWeight.w700,
+                                  letterSpacing: 1.8,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          _previewTitle,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: _headingStyle(
+                            size: compact ? 36 : 45,
+                            color: Colors.white,
+                            height: 0.98,
+                          ).copyWith(fontWeight: FontWeight.w500),
+                        ),
+                        if (promotion.subtitle?.trim().isNotEmpty == true) ...[
+                          const SizedBox(height: 11),
+                          Text(
+                            promotion.subtitle!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: _headingStyle(
+                              size: 15,
+                              color: const Color(0xFFE9DDCE),
+                              height: 1.2,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                        if (promotion.tagline?.trim().isNotEmpty == true) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            promotion.tagline!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: _bodyStyle(
+                              size: 8,
+                              color: Colors.white.withValues(alpha: 0.72),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _botanicalSection({
+    required PromotionSection section,
+    required int index,
+    required Color background,
+    required Color paper,
+    required Color ink,
+    required Color forest,
+    required Color sage,
+    required Color copper,
+    required Color line,
+  }) {
+    if (section.layout == PromotionSectionLayout.quote) {
+      return Container(
+        width: double.infinity,
+        color: copper,
+        padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 38),
+        child: Column(
+          children: [
+            Icon(
+              Icons.local_florist_outlined,
+              color: Colors.white.withValues(alpha: 0.72),
+              size: 24,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _sectionPreviewTitle(section),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _headingStyle(size: 25, color: Colors.white),
+            ),
+            const SizedBox(height: 9),
+            Text(
+              _sectionPreviewBody(section),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _bodyStyle(
+                size: 9,
+                color: Colors.white.withValues(alpha: 0.84),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final hasImage =
+        section.type == PromotionSectionType.image &&
+        section.imageUrl?.trim().isNotEmpty == true;
+    return Container(
+      color: index.isEven ? background : paper,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 38),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'RITUALE 0${index + 1}',
+                style: _bodyStyle(
+                  size: 7,
+                  color: copper,
+                  weight: FontWeight.w700,
+                  letterSpacing: 1.8,
+                ),
+              ),
+              const SizedBox(height: 13),
+              Text(
+                _sectionPreviewTitle(section),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: _headingStyle(size: 26, color: forest),
+              ),
+              const SizedBox(height: 11),
+              Text(
+                _sectionPreviewBody(section),
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+                style: _bodyStyle(
+                  size: 9,
+                  color: ink.withValues(alpha: 0.66),
+                  height: 1.65,
+                ),
+              ),
+            ],
+          );
+          if (!hasImage) return copy;
+          final image = Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              border: Border.all(color: line),
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: _templateImage(
+              imageUrl: section.imageUrl,
+              height: compact ? 160 : 206,
+              borderRadius: BorderRadius.circular(24),
+              fallbackColors: [paper, sage],
+              iconColor: forest,
+            ),
+          );
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [image, const SizedBox(height: 24), copy],
+            );
+          }
+          final imageFirst = index.isEven;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: imageFirst ? image : copy),
+              const SizedBox(width: 34),
+              Expanded(child: imageFirst ? copy : image),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _botanicalOffer({
+    required Color background,
+    required Color ink,
+    required Color forest,
+    required Color onForest,
+    required Color copper,
+    required Color line,
+  }) {
+    return Container(
+      color: background,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 24),
+        decoration: BoxDecoration(
+          color: forest,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: line.withValues(alpha: 0.35)),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 500;
+            final copy = Column(
+              crossAxisAlignment:
+                  compact
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'IL TUO RITUALE',
+                  style: _bodyStyle(
+                    size: 7,
+                    color: copper,
+                    weight: FontWeight.w700,
+                    letterSpacing: 1.8,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  _previewTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: compact ? TextAlign.center : TextAlign.start,
+                  style: _headingStyle(size: 21, color: onForest),
+                ),
+              ],
+            );
+            final price = Text(
+              _previewOfferPrice,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: _headingStyle(
+                size: _previewOfferPrice.length > 12 ? 19 : 35,
+                color: const Color(0xFFE9DDCE),
+              ).copyWith(fontWeight: FontWeight.w600),
+            );
+            if (compact) {
+              return Column(
+                children: [copy, const SizedBox(height: 15), price],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: copy),
+                const SizedBox(width: 24),
+                price,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _botanicalBooking({
+    required Color background,
+    required Color paper,
+    required Color ink,
+    required Color forest,
+    required Color onForest,
+    required Color sage,
+    required Color copper,
+    required Color line,
+  }) {
+    return Container(
+      color: paper,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 40),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: line),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 560;
+            final copy = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.eco_outlined, color: copper, size: 22),
+                const SizedBox(height: 12),
+                Text(
+                  landing.formTitle,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: _headingStyle(size: 28, color: forest),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  landing.formDescription,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: _bodyStyle(
+                    size: 9,
+                    color: ink.withValues(alpha: 0.66),
+                    height: 1.6,
+                  ),
+                ),
+                if (salonPhone.isNotEmpty || salonEmail.isNotEmpty) ...[
+                  const SizedBox(height: 15),
+                  Text(
+                    <String>[
+                      salonPhone,
+                      salonEmail,
+                    ].where((value) => value.isNotEmpty).join('  ·  '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: _bodyStyle(size: 8, color: copper),
+                  ),
+                ],
+              ],
+            );
+            final form = _templateForm(
+              surface: Colors.white,
+              ink: ink,
+              line: line,
+              button: forest,
+              onButton: onForest,
+              accent: sage,
+              radius: 20,
+            );
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [copy, const SizedBox(height: 24), form],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: copy),
+                const SizedBox(width: 34),
+                Expanded(child: form),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _botanicalFooter({
+    required Color forest,
+    required Color onForest,
+    required Color copper,
+  }) {
+    return Container(
+      width: double.infinity,
+      color: forest,
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 22),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 18,
+        runSpacing: 8,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.eco_outlined, size: 14, color: copper),
+              const SizedBox(width: 8),
+              Text(
+                salonName.toUpperCase(),
+                style: _headingStyle(
+                  size: 9,
+                  color: onForest,
+                ).copyWith(letterSpacing: 1.6),
+              ),
+            ],
+          ),
+          Text(
+            <String>[
+              salonPhone,
+              salonEmail,
+            ].where((value) => value.isNotEmpty).join('  ·  '),
+            style: _bodyStyle(size: 7, color: onForest.withValues(alpha: 0.7)),
+          ),
+        ],
+      ),
     );
   }
 }

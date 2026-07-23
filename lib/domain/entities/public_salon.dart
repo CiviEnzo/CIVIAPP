@@ -335,6 +335,32 @@ ClientRegistrationSettings _mapClientRegistration(Object? value) {
     return ClientRegistrationSettings(
       accessMode: _stringToClientRegistrationAccessMode(accessMode),
       extraFields: extraFields,
+      webFormEnabled: value['webFormEnabled'] as bool? ?? false,
+      webFormTitle:
+          (value['webFormTitle'] as String?)?.trim().isNotEmpty == true
+              ? (value['webFormTitle'] as String).trim()
+              : 'Registrati al salone',
+      webFormDescription: (value['webFormDescription'] as String?)?.trim(),
+      webFormConfirmationMessage:
+          (value['webFormConfirmationMessage'] as String?)?.trim().isNotEmpty ==
+                  true
+              ? (value['webFormConfirmationMessage'] as String).trim()
+              : 'Grazie, i tuoi dati sono stati inviati al salone.',
+      privacyPolicyUrl: (value['privacyPolicyUrl'] as String?)?.trim(),
+      privacyVersion:
+          (value['privacyVersion'] as String?)?.trim().isNotEmpty == true
+              ? (value['privacyVersion'] as String).trim()
+              : '1',
+      marketingConsentEnabled:
+          value['marketingConsentEnabled'] as bool? ?? true,
+      webThemeColor:
+          (value['webThemeColor'] as String?)?.trim().isNotEmpty == true
+              ? (value['webThemeColor'] as String).trim()
+              : '#6750A4',
+      webFontFamily:
+          (value['webFontFamily'] as String?)?.trim().isNotEmpty == true
+              ? (value['webFontFamily'] as String).trim()
+              : 'system',
     );
   }
   return const ClientRegistrationSettings();

@@ -10,6 +10,7 @@ import 'package:you_book/domain/entities/client.dart';
 import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/user_role.dart';
+import 'package:you_book/domain/entities/web_client_request.dart';
 import 'package:you_book/presentation/screens/admin/modules/clients_module.dart';
 
 const String _salonId = 'salon-1';
@@ -49,6 +50,46 @@ void main() {
     );
     expect(find.text('Elenco clienti'), findsOneWidget);
     expect(find.text('Cliente #101'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('shows pending website registrations in dedicated tab', (
+    tester,
+  ) async {
+    await _pumpClientsModule(
+      tester,
+      state: _buildState(
+        webClientRequests: <WebClientRequest>[
+          WebClientRequest(
+            id: 'web-1',
+            salonId: _salonId,
+            firstName: 'Laura',
+            lastName: 'Bianchi',
+            phone: '3331234567',
+            email: 'laura@example.com',
+            status: WebClientRequestStatus.newRequest,
+            consents: const WebClientRequestConsent(
+              privacyAccepted: true,
+              privacyVersion: '1',
+              marketingAccepted: true,
+            ),
+            duplicateCandidateClientIds: const <String>['client-existing'],
+            createdAt: DateTime(2026, 7, 21, 10, 30),
+          ),
+        ],
+      ),
+      size: const Size(1800, 1200),
+    );
+
+    expect(find.text('Arrivi dal web (1)'), findsOneWidget);
+    await tester.tap(find.text('Arrivi dal web (1)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Laura Bianchi'), findsOneWidget);
+    expect(find.text('Telefono: 3331234567'), findsOneWidget);
+    expect(find.text('Marketing: consenso acquisito'), findsOneWidget);
+    expect(find.text('Possibile duplicato'), findsOneWidget);
+    expect(find.text('Crea cliente'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -93,7 +134,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('uses real app activity for client badge and app KPI', (
+  testWidgets('uses registered native push tokens for app badge and KPI', (
     tester,
   ) async {
     final clients = <Client>[
@@ -156,13 +197,13 @@ void main() {
     expect(
       find.descendant(
         of: _summaryCardFinder('App Attiva'),
-        matching: find.text('2'),
+        matching: find.text('1'),
       ),
       findsOneWidget,
     );
-    expect(find.text('Non scaricata'), findsOneWidget);
+    expect(find.text('Mai aperta'), findsNWidgets(2));
     expect(find.text('Link inviato'), findsOneWidget);
-    expect(find.text('Scaricata'), findsNWidgets(2));
+    expect(find.text('App attiva'), findsOneWidget);
     expect(find.text('Anna Cliente'), findsOneWidget);
     expect(find.text('Bianca Cliente'), findsOneWidget);
     expect(find.text('Carla Cliente'), findsOneWidget);
@@ -207,7 +248,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Non scaricata'), findsOneWidget);
+      expect(find.text('Mai aperta'), findsOneWidget);
 
       final updatedClient = _buildClient(
         id: 'client-regression',
@@ -243,8 +284,8 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Scaricata'), findsNothing);
-      expect(find.text('Non scaricata'), findsOneWidget);
+      expect(find.text('App attiva'), findsNothing);
+      expect(find.text('Mai aperta'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -281,12 +322,14 @@ AppDataState _buildState({
   List<Client> clients = const <Client>[],
   List<ClientAppMovement> clientAppMovements = const <ClientAppMovement>[],
   List<AppUser> users = const <AppUser>[],
+  List<WebClientRequest> webClientRequests = const <WebClientRequest>[],
 }) {
   return AppDataState.initial().copyWith(
     salons: const <Salon>[_salon],
     clients: clients,
     clientAppMovements: clientAppMovements,
     users: users,
+    webClientRequests: webClientRequests,
   );
 }
 

@@ -417,7 +417,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
                     section(_buildGenderChips(filters.genders)),
                     section(
                       _buildTriStateChoice(
-                        label: 'Hanno installato l’app',
+                        label: 'Hanno l’app attiva',
                         value: filters.hasPushToken,
                         onChanged:
                             (value) => _updateFilter(
@@ -979,7 +979,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
     if (includePrimaryFields) {
       accessChildren.add(
         _buildTriStateChoice(
-          label: 'Token push presente',
+          label: 'App attiva',
           value: filters.hasPushToken,
           onChanged:
               (value) =>
@@ -1982,9 +1982,29 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
       ),
       _ClientExportField(
         id: 'appInstalled',
-        label: 'App installata',
-        value: (row) => boolValue(row.hasPushToken),
+        label: 'App attiva',
+        value: (row) => boolValue(row.hasActiveApp),
         selectedByDefault: true,
+      ),
+      _ClientExportField(
+        id: 'firstAppOpenedAt',
+        label: 'Prima apertura app',
+        value: (row) => dateValue(row.client.firstAppOpenedAt),
+      ),
+      _ClientExportField(
+        id: 'lastAppSeenAt',
+        label: 'Ultimo utilizzo app',
+        value: (row) => dateValue(row.client.lastAppSeenAt),
+      ),
+      _ClientExportField(
+        id: 'appPlatform',
+        label: 'Piattaforma app',
+        value: (row) => row.client.appPlatform ?? '',
+      ),
+      _ClientExportField(
+        id: 'appVersion',
+        label: 'Versione app',
+        value: (row) => row.client.appVersion ?? '',
       ),
       _ClientExportField(
         id: 'onboardingStatus',
@@ -2661,7 +2681,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
 
     addChip(
       filters.hasPushToken != null,
-      'Token push: ${filters.hasPushToken == true ? 'sì' : 'no'}',
+      'App attiva: ${filters.hasPushToken == true ? 'sì' : 'no'}',
       (builder) => builder.hasPushToken = null,
     );
 
@@ -3089,6 +3109,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
           loyaltyPoints: client.loyaltyPoints,
           hasUpcoming: upcomingAppointments.isNotEmpty,
           hasPushToken: client.fcmTokens.isNotEmpty,
+          hasActiveApp: client.isNativeAppActiveAt(now),
           hasEmail: client.email?.trim().isNotEmpty ?? false,
           onboardingStatus: client.onboardingStatus,
         ),
@@ -4011,7 +4032,7 @@ class _AdvancedSearchTabState extends ConsumerState<AdvancedSearchTab> {
         _buildMobileStatusPill(label: 'Saldo residuo', tone: ChipTone.warning),
       );
     }
-    if (data.hasPushToken) {
+    if (data.hasActiveApp) {
       chips.add(
         _buildMobileStatusPill(label: 'App attiva', tone: ChipTone.neutral),
       );
@@ -4692,6 +4713,7 @@ class _ResultRowData {
     required this.loyaltyPoints,
     required this.hasUpcoming,
     required this.hasPushToken,
+    required this.hasActiveApp,
     required this.hasEmail,
     required this.onboardingStatus,
   });
@@ -4706,6 +4728,7 @@ class _ResultRowData {
   final int loyaltyPoints;
   final bool hasUpcoming;
   final bool hasPushToken;
+  final bool hasActiveApp;
   final bool hasEmail;
   final ClientOnboardingStatus onboardingStatus;
 }

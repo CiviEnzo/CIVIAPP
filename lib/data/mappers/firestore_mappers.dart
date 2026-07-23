@@ -23,6 +23,7 @@ import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/public_salon.dart';
 import 'package:you_book/domain/entities/salon_setup_progress.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
+import 'package:you_book/domain/entities/web_client_request.dart';
 import 'package:you_book/domain/entities/service.dart';
 import 'package:you_book/domain/entities/service_category.dart';
 import 'package:you_book/domain/entities/shift.dart';
@@ -382,6 +383,7 @@ Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
           .toList()
         ..sort((a, b) => a.order.compareTo(b.order));
   final analyticsRaw = _mapFromDynamic(data['analytics']);
+  final webLandingRaw = _mapFromDynamic(data['webLanding']);
   PromotionAnalytics? analytics;
   if (analyticsRaw.isNotEmpty) {
     analytics = PromotionAnalytics.fromMap(analyticsRaw);
@@ -434,6 +436,7 @@ Promotion promotionFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     createdBy: data['createdBy'] as String?,
     updatedBy: data['updatedBy'] as String?,
     analytics: analytics,
+    webLanding: PromotionWebLanding.fromMap(webLandingRaw),
   );
 }
 
@@ -477,6 +480,7 @@ Map<String, dynamic> promotionToMap(Promotion promotion) {
     'createdBy': promotion.createdBy,
     'updatedBy': promotion.updatedBy,
     if (analyticsMap != null) 'analytics': analyticsMap,
+    'webLanding': promotion.webLanding.toMap(),
   }..removeWhere((_, value) {
     if (value == null) {
       return true;
@@ -1302,6 +1306,8 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
   final invitationSentAtRaw = data['invitationSentAt'];
   final firstLoginAtRaw = data['firstLoginAt'] ?? data['invitationAcceptedAt'];
   final onboardingCompletedAtRaw = data['onboardingCompletedAt'];
+  final firstAppOpenedAtRaw = data['firstAppOpenedAt'];
+  final lastAppSeenAtRaw = data['lastAppSeenAt'];
   final dateOfBirthRaw = data['dateOfBirth'];
   final channelPreferencesRaw =
       data['channelPreferences'] as Map<String, dynamic>?;
@@ -1379,6 +1385,17 @@ Client clientFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
             : (onboardingCompletedAtRaw is DateTime
                 ? onboardingCompletedAtRaw
                 : null),
+    firstAppOpenedAt:
+        firstAppOpenedAtRaw is Timestamp
+            ? firstAppOpenedAtRaw.toDate()
+            : (firstAppOpenedAtRaw is DateTime ? firstAppOpenedAtRaw : null),
+    lastAppSeenAt:
+        lastAppSeenAtRaw is Timestamp
+            ? lastAppSeenAtRaw.toDate()
+            : (lastAppSeenAtRaw is DateTime ? lastAppSeenAtRaw : null),
+    appInstallationId: (data['appInstallationId'] as String?)?.trim(),
+    appPlatform: (data['appPlatform'] as String?)?.trim(),
+    appVersion: (data['appVersion'] as String?)?.trim(),
     createdAt: _timestampToDate(data['createdAt']),
   );
 }
@@ -1444,6 +1461,21 @@ Map<String, dynamic> clientToMap(Client client) {
     map['onboardingCompletedAt'] = Timestamp.fromDate(
       client.onboardingCompletedAt!,
     );
+  }
+  if (client.firstAppOpenedAt != null) {
+    map['firstAppOpenedAt'] = Timestamp.fromDate(client.firstAppOpenedAt!);
+  }
+  if (client.lastAppSeenAt != null) {
+    map['lastAppSeenAt'] = Timestamp.fromDate(client.lastAppSeenAt!);
+  }
+  if (client.appInstallationId != null) {
+    map['appInstallationId'] = client.appInstallationId;
+  }
+  if (client.appPlatform != null) {
+    map['appPlatform'] = client.appPlatform;
+  }
+  if (client.appVersion != null) {
+    map['appVersion'] = client.appVersion;
   }
   if (client.createdAt != null) {
     map['createdAt'] = Timestamp.fromDate(client.createdAt!);
@@ -1537,6 +1569,53 @@ Map<String, dynamic> salonAccessRequestToMap(SalonAccessRequest request) {
     map['updatedAt'] = Timestamp.fromDate(request.updatedAt!);
   }
   return map;
+}
+
+WebClientRequest webClientRequestFromDoc(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  final data = doc.data() ?? const <String, dynamic>{};
+  final extraRaw = _mapFromDynamic(data['extraData']);
+  final consentsRaw = _mapFromDynamic(data['consents']);
+  final duplicatesRaw = data['duplicateCandidateClientIds'];
+  return WebClientRequest(
+    id: doc.id,
+    salonId: data['salonId'] as String? ?? '',
+    firstName: data['firstName'] as String? ?? '',
+    lastName: data['lastName'] as String? ?? '',
+    phone: data['phone'] as String? ?? '',
+    email: data['email'] as String? ?? '',
+    dateOfBirth: _timestampToDate(data['dateOfBirth']),
+    extraData: Map<String, dynamic>.unmodifiable(extraRaw),
+    status: _stringToWebClientRequestStatus(data['status'] as String?),
+    source: data['source'] as String? ?? 'website',
+    sourceUrl: data['sourceUrl'] as String?,
+    referrer: data['referrer'] as String?,
+    utmSource: data['utmSource'] as String?,
+    utmMedium: data['utmMedium'] as String?,
+    utmCampaign: data['utmCampaign'] as String?,
+    consents: WebClientRequestConsent(
+      privacyAccepted: consentsRaw['privacyAccepted'] as bool? ?? false,
+      privacyVersion: consentsRaw['privacyVersion'] as String? ?? '1',
+      privacyAcceptedAt: _timestampToDate(consentsRaw['privacyAcceptedAt']),
+      marketingAccepted: consentsRaw['marketingAccepted'] as bool? ?? false,
+      marketingAcceptedAt: _timestampToDate(consentsRaw['marketingAcceptedAt']),
+    ),
+    duplicateCandidateClientIds:
+        duplicatesRaw is List
+            ? duplicatesRaw
+                .map((value) => value.toString())
+                .where((value) => value.isNotEmpty)
+                .toList(growable: false)
+            : const <String>[],
+    linkedClientId: data['linkedClientId'] as String?,
+    createdAt: _timestampToDate(data['createdAt']),
+    updatedAt: _timestampToDate(data['updatedAt']),
+    processedAt: _timestampToDate(data['processedAt']),
+    processedBy: data['processedBy'] as String?,
+    promotionId: data['promotionId'] as String?,
+    promotionTitle: data['promotionTitle'] as String?,
+  );
 }
 
 ClientQuestionnaireTemplate clientQuestionnaireTemplateFromDoc(
@@ -2610,7 +2689,35 @@ ClientRegistrationSettings _mapToClientRegistrationSettings(
       .map((value) => _stringToClientRegistrationExtraField(value?.toString()))
       .whereType<ClientRegistrationExtraField>()
       .toList(growable: false);
-  return ClientRegistrationSettings(accessMode: mode, extraFields: extra);
+  return ClientRegistrationSettings(
+    accessMode: mode,
+    extraFields: extra,
+    webFormEnabled: data['webFormEnabled'] as bool? ?? false,
+    webFormTitle:
+        (data['webFormTitle'] as String?)?.trim().isNotEmpty == true
+            ? (data['webFormTitle'] as String).trim()
+            : 'Registrati al salone',
+    webFormDescription: (data['webFormDescription'] as String?)?.trim(),
+    webFormConfirmationMessage:
+        (data['webFormConfirmationMessage'] as String?)?.trim().isNotEmpty ==
+                true
+            ? (data['webFormConfirmationMessage'] as String).trim()
+            : 'Grazie, i tuoi dati sono stati inviati al salone.',
+    privacyPolicyUrl: (data['privacyPolicyUrl'] as String?)?.trim(),
+    privacyVersion:
+        (data['privacyVersion'] as String?)?.trim().isNotEmpty == true
+            ? (data['privacyVersion'] as String).trim()
+            : '1',
+    marketingConsentEnabled: data['marketingConsentEnabled'] as bool? ?? true,
+    webThemeColor:
+        (data['webThemeColor'] as String?)?.trim().isNotEmpty == true
+            ? (data['webThemeColor'] as String).trim()
+            : '#6750A4',
+    webFontFamily:
+        (data['webFontFamily'] as String?)?.trim().isNotEmpty == true
+            ? (data['webFontFamily'] as String).trim()
+            : 'system',
+  );
 }
 
 Map<String, dynamic> _clientRegistrationToMap(
@@ -2621,6 +2728,15 @@ Map<String, dynamic> _clientRegistrationToMap(
     'extraFields': settings.extraFields
         .map(_clientRegistrationExtraFieldToString)
         .toList(growable: false),
+    'webFormEnabled': settings.webFormEnabled,
+    'webFormTitle': settings.webFormTitle,
+    'webFormDescription': settings.webFormDescription,
+    'webFormConfirmationMessage': settings.webFormConfirmationMessage,
+    'privacyPolicyUrl': settings.privacyPolicyUrl,
+    'privacyVersion': settings.privacyVersion,
+    'marketingConsentEnabled': settings.marketingConsentEnabled,
+    'webThemeColor': settings.webThemeColor,
+    'webFontFamily': settings.webFontFamily,
   };
 }
 
@@ -2703,6 +2819,20 @@ String _accessRequestStatusToString(SalonAccessRequestStatus status) {
       return 'approved';
     case SalonAccessRequestStatus.rejected:
       return 'rejected';
+  }
+}
+
+WebClientRequestStatus _stringToWebClientRequestStatus(String? value) {
+  switch (value) {
+    case 'accepted':
+      return WebClientRequestStatus.accepted;
+    case 'rejected':
+      return WebClientRequestStatus.rejected;
+    case 'archived':
+      return WebClientRequestStatus.archived;
+    case 'new':
+    default:
+      return WebClientRequestStatus.newRequest;
   }
 }
 

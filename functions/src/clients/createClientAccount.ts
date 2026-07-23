@@ -1,7 +1,8 @@
-import { randomBytes } from 'crypto';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+
+const temporaryClientPassword = '123456';
 
 interface CreateClientAccountPayload {
   email: string;
@@ -152,14 +153,12 @@ export const createClientAccount = onCall({ region: 'europe-west3' }, async (req
         'The requested auth user was not found.',
       );
     } else {
-      const randomPasswordSeed = randomBytes(32).toString('base64').replace(/[^a-zA-Z0-9]/g, '');
-      const randomPassword = (randomPasswordSeed.length >= 12 ? randomPasswordSeed : `${Date.now()}TempUser`).slice(0, 16);
       try {
         authUser = await auth.createUser({
           email,
-          password: randomPassword,
+          password: temporaryClientPassword,
           displayName,
-          emailVerified: false,
+          emailVerified: true,
         });
         createdAuthUser = true;
       } catch (error: unknown) {
@@ -186,6 +185,7 @@ export const createClientAccount = onCall({ region: 'europe-west3' }, async (req
       availableRoles: FieldValue.arrayUnion('client'),
       salonId,
       salonIds: FieldValue.arrayUnion(salonId),
+      ...(createdAuthUser ? { mustChangePassword: true } : {}),
       ...cleanupPendingFields,
     },
     { merge: true },
@@ -193,6 +193,6 @@ export const createClientAccount = onCall({ region: 'europe-west3' }, async (req
 
   return {
     uid: authUser.uid,
-    shouldSendPasswordReset: createdAuthUser,
+    createdAuthUser,
   };
 });

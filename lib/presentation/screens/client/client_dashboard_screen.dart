@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:you_book/app/providers.dart';
-import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/cart/cart_models.dart';
 import 'package:you_book/domain/entities/app_notification.dart';
 import 'package:you_book/domain/entities/appointment.dart';
@@ -31,8 +30,8 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
@@ -1621,12 +1620,7 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         },
       ),
     );
-    _showAddedToCartSnackBar(
-      context: context,
-      itemName: service.name,
-      client: client,
-      salon: salon,
-    );
+    _showAddedToCartNotice(context: context, itemName: service.name);
   }
 
   void _addPackageToCart({
@@ -1659,36 +1653,19 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
         },
       ),
     );
-    _showAddedToCartSnackBar(
-      context: context,
-      itemName: package.name,
-      client: client,
-      salon: salon,
-    );
+    _showAddedToCartNotice(context: context, itemName: package.name);
   }
 
-  void _showAddedToCartSnackBar({
+  void _showAddedToCartNotice({
     required BuildContext context,
     required String itemName,
-    required Client client,
-    required Salon? salon,
   }) {
     if (!mounted) {
       return;
     }
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentAppSnackBar();
-    messenger.showAppSnackBar(
-      SnackBar(
-        content: Text('$itemName aggiunto al carrello'),
-        action: SnackBarAction(
-          label: 'Apri carrello',
-          onPressed: () {
-            if (!mounted) return;
-            setState(() => _currentTab = 3);
-          },
-        ),
-      ),
+    context.showAppNotice(
+      '$itemName aggiunto al carrello',
+      tone: AppNoticeTone.success,
     );
   }
 
@@ -2099,14 +2076,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       }
     } on StripePaymentsException catch (error) {
       if (mounted) {
-        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(
+          SnackBar(content: Text(italianPaymentErrorMessage(error))),
+        );
       }
     } on Exception catch (error) {
       if (mounted) {
         messenger.showAppSnackBar(
-          SnackBar(
-            content: Text('Pagamento non riuscito: ${error.toString()}'),
-          ),
+          SnackBar(content: Text(italianPaymentErrorMessage(error))),
         );
       }
     } finally {
@@ -2395,14 +2372,14 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
       );
     } on StripePaymentsException catch (error) {
       if (mounted) {
-        messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
+        messenger.showAppSnackBar(
+          SnackBar(content: Text(italianPaymentErrorMessage(error))),
+        );
       }
     } on Exception catch (error) {
       if (mounted) {
         messenger.showAppSnackBar(
-          SnackBar(
-            content: Text('Pagamento non riuscito: ${error.toString()}'),
-          ),
+          SnackBar(content: Text(italianPaymentErrorMessage(error))),
         );
       }
     } finally {
@@ -3122,7 +3099,10 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
                 ),
               ),
             ),
-            body: IndexedStack(index: _currentTab, children: tabViews),
+            body: _ClientAppUsageTracker(
+              clientId: currentClient.id,
+              child: IndexedStack(index: _currentTab, children: tabViews),
+            ),
             bottomNavigationBar: NavigationBar(
               selectedIndex: _currentTab,
               onDestinationSelected: (index) {
@@ -3436,37 +3416,29 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
           ),
         ),
         const SizedBox(height: 16),
-        if (showLastMinute) ...[
+        if (showLastMinute && lastMinuteSlots.isNotEmpty) ...[
           Text('Appuntamenti Last Minute', style: sectionTitleStyle),
           const SizedBox(height: 6),
-          if (lastMinuteSlots.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text('Niente slot ora. Attiva gli avvisi!'),
-              ),
-            )
-          else ...[
-            _LastMinuteSlotsGrid(
-              slots: lastMinuteSlots.take(4).toList(growable: false),
-              onSlotTap:
-                  (slot) => _bookLastMinuteSlot(
-                    client,
-                    slot,
-                    services,
-                    salon: salon,
-                    overrideContext: context,
-                  ),
-            ),
-            if (lastMinuteSlots.length > 4)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => setState(() => _currentTab = 1),
-                  icon: const Icon(Icons.schedule_rounded),
-                  label: const Text('Vedi tutti gli slot nelle prossime 2 ore'),
+          _LastMinuteSlotsGrid(
+            slots: lastMinuteSlots.take(4).toList(growable: false),
+            onSlotTap:
+                (slot) => _bookLastMinuteSlot(
+                  client,
+                  slot,
+                  services,
+                  salon: salon,
+                  overrideContext: context,
                 ),
+          ),
+          if (lastMinuteSlots.length > 4)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _currentTab = 1),
+                icon: const Icon(Icons.schedule_rounded),
+                label: const Text('Vedi tutti gli slot nelle prossime 2 ore'),
               ),
-          ],
+            ),
           const SizedBox(height: 16),
         ],
 
@@ -4394,10 +4366,12 @@ class _ClientDashboardScreenState extends ConsumerState<ClientDashboardScreen>
             }),
       );
     } on StripePaymentsException catch (error) {
-      messenger.showAppSnackBar(SnackBar(content: Text(error.message)));
+      messenger.showAppSnackBar(
+        SnackBar(content: Text(italianPaymentErrorMessage(error))),
+      );
     } catch (error) {
       messenger.showAppSnackBar(
-        SnackBar(content: Text('Pagamento non riuscito: ${error.toString()}')),
+        SnackBar(content: Text(italianPaymentErrorMessage(error))),
       );
     }
   }
@@ -8304,6 +8278,119 @@ class _PushTokenRegistrar extends ConsumerStatefulWidget {
       _PushTokenRegistrarState();
 }
 
+class _ClientAppUsageTracker extends ConsumerStatefulWidget {
+  const _ClientAppUsageTracker({required this.clientId, required this.child});
+
+  final String clientId;
+  final Widget child;
+
+  @override
+  ConsumerState<_ClientAppUsageTracker> createState() =>
+      _ClientAppUsageTrackerState();
+}
+
+class _ClientAppUsageTrackerState extends ConsumerState<_ClientAppUsageTracker>
+    with WidgetsBindingObserver {
+  static const _installationIdKey = 'youbook_native_installation_id';
+  static const _minimumUpdateInterval = Duration(minutes: 15);
+
+  DateTime? _lastRecordedAt;
+  bool _isRecording = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recordUsage());
+  }
+
+  @override
+  void didUpdateWidget(covariant _ClientAppUsageTracker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.clientId != widget.clientId) {
+      _lastRecordedAt = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _recordUsage());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _recordUsage();
+    }
+  }
+
+  Future<void> _recordUsage() async {
+    if (!mounted || !_isSupportedNativePlatform || _isRecording) {
+      return;
+    }
+    final now = DateTime.now();
+    final lastRecordedAt = _lastRecordedAt;
+    if (lastRecordedAt != null &&
+        now.difference(lastRecordedAt) < _minimumUpdateInterval) {
+      return;
+    }
+
+    _isRecording = true;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      var installationId = preferences.getString(_installationIdKey)?.trim();
+      if (installationId == null || installationId.isEmpty) {
+        installationId = const Uuid().v4();
+        await preferences.setString(_installationIdKey, installationId);
+      }
+      final packageInfo = await PackageInfo.fromPlatform();
+      final version =
+          packageInfo.buildNumber.trim().isEmpty
+              ? packageInfo.version
+              : '${packageInfo.version}+${packageInfo.buildNumber}';
+      await ref
+          .read(appDataProvider.notifier)
+          .recordClientNativeAppUsage(
+            clientId: widget.clientId,
+            installationId: installationId,
+            platform: _nativePlatformName,
+            appVersion: version,
+          );
+      _lastRecordedAt = now;
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'ClientDashboardScreen',
+          informationCollector:
+              () => <DiagnosticsNode>[
+                DiagnosticsNode.message('Failed to record native app usage'),
+              ],
+        ),
+      );
+    } finally {
+      _isRecording = false;
+    }
+  }
+
+  bool get _isSupportedNativePlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  String get _nativePlatformName => switch (defaultTargetPlatform) {
+    TargetPlatform.android => 'android',
+    TargetPlatform.iOS => 'ios',
+    _ => 'unsupported',
+  };
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class _PushTokenRegistrarState extends ConsumerState<_PushTokenRegistrar> {
   StreamSubscription<String>? _subscription;
   bool _initialized = false;
@@ -10171,11 +10258,11 @@ class _AppointmentCard extends ConsumerWidget {
     if (createdAt == null) {
       // Legacy safeguard: keep previous behaviour when the creation timestamp
       // is unavailable.
-      return appointment.start.difference(now) <= const Duration(hours: 12);
+      return appointment.start.difference(now) <= const Duration(hours: 6);
     }
     final elapsed =
         now.isAfter(createdAt) ? now.difference(createdAt) : Duration.zero;
-    return elapsed <= const Duration(hours: 12);
+    return elapsed <= const Duration(hours: 6);
   }
 
   String _staffInitials(String name) {

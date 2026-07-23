@@ -20,6 +20,7 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
   late TextEditingController _address;
   late TextEditingController _city;
   late TextEditingController _postalCode;
+  late TextEditingController _bookingLink;
   late TextEditingController _googlePlaceId;
   late TextEditingController _latitude;
   late TextEditingController _longitude;
@@ -36,6 +37,7 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
     _address = TextEditingController(text: salon.address);
     _city = TextEditingController(text: salon.city);
     _postalCode = TextEditingController(text: salon.postalCode ?? '');
+    _bookingLink = TextEditingController(text: salon.bookingLink ?? '');
     _googlePlaceId = TextEditingController(text: salon.googlePlaceId ?? '');
     _latitude = TextEditingController(
       text: salon.latitude == null ? '' : salon.latitude!.toStringAsFixed(6),
@@ -54,6 +56,7 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
     _address.dispose();
     _city.dispose();
     _postalCode.dispose();
+    _bookingLink.dispose();
     _googlePlaceId.dispose();
     _latitude.dispose();
     _longitude.dispose();
@@ -71,6 +74,14 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
     final email = _email.text.trim();
     if (email.isNotEmpty && !_isValidEmail(email)) {
       _showError('Inserisci un indirizzo email valido.');
+      return;
+    }
+
+    final bookingLink = _bookingLink.text.trim();
+    if (bookingLink.isNotEmpty && !_isValidWebUrl(bookingLink)) {
+      _showError(
+        'Inserisci un link prenotazioni valido, completo di https://.',
+      );
       return;
     }
 
@@ -100,6 +111,7 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
       city: _city.text.trim(),
       postalCode:
           _postalCode.text.trim().isEmpty ? null : _postalCode.text.trim(),
+      bookingLink: bookingLink.isEmpty ? null : bookingLink,
       googlePlaceId:
           _googlePlaceId.text.trim().isEmpty
               ? null
@@ -115,6 +127,13 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
 
   bool _isValidEmail(String value) {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
+  }
+
+  bool _isValidWebUrl(String value) {
+    final uri = Uri.tryParse(value);
+    return uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty;
   }
 
   void _showError(String message) {
@@ -259,6 +278,18 @@ class _SalonProfileSheetState extends State<SalonProfileSheet> {
           TextField(
             controller: _postalCode,
             decoration: const InputDecoration(labelText: 'CAP'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _bookingLink,
+            decoration: const InputDecoration(
+              labelText: 'Link prenotazioni',
+              hintText: 'https://example.com/prenota',
+              helperText: 'Link aperto dai clienti per prenotare online',
+            ),
+            keyboardType: TextInputType.url,
+            textCapitalization: TextCapitalization.none,
+            autocorrect: false,
           ),
           const SizedBox(height: 12),
           _buildGoogleLocationSection(context),

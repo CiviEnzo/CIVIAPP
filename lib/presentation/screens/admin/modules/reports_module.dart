@@ -2592,6 +2592,14 @@ class _ReportsFiltersBarState extends State<ReportsFiltersBar> {
           widget.range.end.day,
         ),
       ),
+      locale: const Locale('it'),
+      saveText: 'Applica',
+      builder: (context, child) {
+        return Theme(
+          data: _buildRangePickerTheme(context),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
     if (picked == null) {
       return;
@@ -2611,6 +2619,75 @@ class _ReportsFiltersBarState extends State<ReportsFiltersBar> {
           59,
           59,
         ),
+      ),
+    );
+  }
+
+  ThemeData _buildRangePickerTheme(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    const accent = Color(0xFFD4AD31);
+    const accentInk = Color(0xFF161616);
+    final rangeFill = accent.withValues(alpha: 0.18);
+    final overlay = accent.withValues(alpha: 0.10);
+
+    Color? resolveDayForeground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.disabled)) {
+        return scheme.onSurfaceVariant.withValues(alpha: 0.38);
+      }
+      if (states.contains(WidgetState.selected)) {
+        return accentInk;
+      }
+      return scheme.onSurface;
+    }
+
+    Color? resolveDayBackground(Set<WidgetState> states) {
+      if (states.contains(WidgetState.selected)) {
+        return accent;
+      }
+      return null;
+    }
+
+    return theme.copyWith(
+      colorScheme: scheme.copyWith(
+        primary: accent,
+        onPrimary: accentInk,
+        secondaryContainer: rangeFill,
+        onSecondaryContainer: scheme.onSurface,
+        surface: scheme.surface,
+        onSurface: scheme.onSurface,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.onSurface,
+          textStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      datePickerTheme: theme.datePickerTheme.copyWith(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        headerBackgroundColor: scheme.surface,
+        headerForegroundColor: scheme.onSurface,
+        dividerColor: scheme.outlineVariant,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        dayForegroundColor: WidgetStateProperty.resolveWith(
+          resolveDayForeground,
+        ),
+        dayBackgroundColor: WidgetStateProperty.resolveWith(
+          resolveDayBackground,
+        ),
+        dayOverlayColor: WidgetStatePropertyAll(overlay),
+        todayForegroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return accentInk;
+          }
+          return accent;
+        }),
+        todayBorder: BorderSide(color: accent.withValues(alpha: 0.75)),
+        rangeSelectionBackgroundColor: rangeFill,
+        rangeSelectionOverlayColor: WidgetStatePropertyAll(overlay),
       ),
     );
   }

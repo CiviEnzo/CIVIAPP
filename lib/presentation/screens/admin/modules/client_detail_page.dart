@@ -59,6 +59,29 @@ bool isCompactClientLayout(BuildContext context) {
   return mediaQuery.size.width < _clientStandaloneWidthThreshold;
 }
 
+@visibleForTesting
+double? resolveAppointmentSaleTotal({
+  required String appointmentId,
+  required Iterable<PaymentTicket> paymentTickets,
+  required Iterable<Sale> sales,
+}) {
+  final saleById = <String, Sale>{for (final sale in sales) sale.id: sale};
+  for (final ticket in paymentTickets) {
+    if (ticket.appointmentId != appointmentId) {
+      continue;
+    }
+    final saleId = ticket.saleId;
+    if (saleId == null || saleId.isEmpty) {
+      continue;
+    }
+    final sale = saleById[saleId];
+    if (sale != null) {
+      return sale.total;
+    }
+  }
+  return null;
+}
+
 Future<bool> openClientDetailPage(
   BuildContext context, {
   required String clientId,
@@ -5752,6 +5775,8 @@ class _AppointmentsTab extends ConsumerWidget {
           ..sort((a, b) => a.start.compareTo(b.start));
     final staff = data.staff;
     final services = data.services;
+    final paymentTickets = data.paymentTickets;
+    final sales = data.sales;
     final salons = data.salons;
     final clients = data.clients;
     final client = clients.firstWhereOrNull((item) => item.id == clientId);
@@ -5904,6 +5929,8 @@ class _AppointmentsTab extends ConsumerWidget {
           dateFormat: dateFormat,
           currency: currency,
           appointmentNumberById: upcomingAppointmentNumberById,
+          paymentTickets: paymentTickets,
+          sales: sales,
           enableActions: true,
           onEditAppointment: editAppointment,
           onDeleteAppointment: deleteAppointment,
@@ -5918,6 +5945,8 @@ class _AppointmentsTab extends ConsumerWidget {
           dateFormat: dateFormat,
           currency: currency,
           appointmentNumberById: historyAppointmentNumberById,
+          paymentTickets: paymentTickets,
+          sales: sales,
         ),
       ],
     );
@@ -5934,6 +5963,8 @@ class _AppointmentGroup extends StatelessWidget {
     required this.dateFormat,
     required this.currency,
     required this.appointmentNumberById,
+    required this.paymentTickets,
+    required this.sales,
     this.enableActions = false,
     this.onEditAppointment,
     this.onDeleteAppointment,
@@ -5947,6 +5978,8 @@ class _AppointmentGroup extends StatelessWidget {
   final DateFormat dateFormat;
   final NumberFormat currency;
   final Map<String, int> appointmentNumberById;
+  final List<PaymentTicket> paymentTickets;
+  final List<Sale> sales;
   final bool enableActions;
   final Future<void> Function(Appointment appointment)? onEditAppointment;
   final Future<void> Function(Appointment appointment)? onDeleteAppointment;
@@ -5973,12 +6006,19 @@ class _AppointmentGroup extends StatelessWidget {
             (element) => element.id == appointment.staffId,
           );
           final appointmentNumber = appointmentNumberById[appointment.id] ?? 0;
-          final amount =
+          final catalogAmount =
               appointmentServices.isNotEmpty
                   ? appointmentServices
                       .map((service) => service.price)
                       .fold<double>(0, (value, price) => value + price)
                   : null;
+          final amount =
+              resolveAppointmentSaleTotal(
+                appointmentId: appointment.id,
+                paymentTickets: paymentTickets,
+                sales: sales,
+              ) ??
+              catalogAmount;
           final packageLabel =
               appointment.packageId == null
                   ? null
@@ -10072,6 +10112,9 @@ class _CompactListSection<T> extends StatelessWidget {
 class _BillingCompactHeader extends StatelessWidget {
   const _BillingCompactHeader();
 
+  static const double _actionsColumnWidth = 76;
+  static const double _amountStatusSpacing = 16;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -10095,12 +10138,21 @@ class _BillingCompactHeader extends StatelessWidget {
           Expanded(flex: 4, child: Text('Dettagli', style: style)),
           Expanded(
             flex: 2,
-            child: Text('Importo', style: style, textAlign: TextAlign.end),
+            child: Padding(
+              padding: const EdgeInsets.only(right: _amountStatusSpacing),
+              child: Text('Importo', style: style, textAlign: TextAlign.end),
+            ),
           ),
           Expanded(flex: 2, child: Text('Stato', style: style)),
-          const SizedBox(
-            width: 56,
-            child: Text('Azioni', textAlign: TextAlign.center),
+          SizedBox(
+            width: _actionsColumnWidth,
+            child: Text(
+              'Azioni',
+              style: style,
+              maxLines: 1,
+              softWrap: false,
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),
@@ -10164,13 +10216,18 @@ class _BillingCompactRowWidget extends StatelessWidget {
           ),
           Expanded(
             flex: 2,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _buildTextBlock(
-                context,
-                title: data.amountLabel,
-                subtitle: data.amountSubtitle,
-                alignEnd: true,
+            child: Padding(
+              padding: const EdgeInsets.only(
+                right: _BillingCompactHeader._amountStatusSpacing,
+              ),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _buildTextBlock(
+                  context,
+                  title: data.amountLabel,
+                  subtitle: data.amountSubtitle,
+                  alignEnd: true,
+                ),
               ),
             ),
           ),
@@ -10182,7 +10239,7 @@ class _BillingCompactRowWidget extends StatelessWidget {
             ),
           ),
           SizedBox(
-            width: 56,
+            width: _BillingCompactHeader._actionsColumnWidth,
             child:
                 data.onAction == null || data.actionIcon == null
                     ? const SizedBox.shrink()

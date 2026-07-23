@@ -21,6 +21,7 @@ export {
   syncPublicSalonCatalogOnPackageWrite,
   syncPublicSalonCatalogOnServiceWrite,
   syncPublicSalonDirectory,
+  syncPublicPromotionLandingV2,
 } from "./salons/publicSalonSync";
 export { geocodeSalonAddress } from "./salons/geocodeSalonAddress";
 export {
@@ -57,6 +58,10 @@ export {
 export { assignClientNumber } from "./clients/assignClientNumber";
 export { createClientAccount } from "./clients/createClientAccount";
 export { activateClientSalon } from "./clients/activateClientSalon";
+export {
+  submitWebClientRequest,
+  processWebClientRequest,
+} from "./clients/webClientRequests";
 export { deleteCurrentUserAccount } from "./account/deleteCurrentUserAccount";
 export {
   appointmentReminderOnWrite,

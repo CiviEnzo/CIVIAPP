@@ -15,8 +15,99 @@
         "phone": "+390212345678",
         "email": "admin3@civiapp.it",
         "postalCode": "20121",
+        "bookingLink": "https://example.com/prenota",
+        "latitude": 45.4642,
+        "longitude": 9.19,
         "description": "Salone pilota creato da provisioning interno.",
+        "status": "active",
         "isPublished": false,
+        "socialLinks": {
+          "instagram": "https://instagram.com/salone_enzo_ferrari",
+          "facebook": "https://facebook.com/salone_enzo_ferrari"
+        },
+        "rooms": [
+          {
+            "id": "cabina-viso",
+            "name": "Cabina viso",
+            "capacity": 1,
+            "category": "Estetica",
+            "services": []
+          },
+          {
+            "id": "cabina-corpo",
+            "name": "Cabina corpo",
+            "capacity": 1,
+            "category": "Corpo",
+            "services": []
+          }
+        ],
+        "equipment": [
+          {
+            "id": "laser-diodo",
+            "name": "Laser diodo 808",
+            "quantity": 1,
+            "status": "operational",
+            "notes": ""
+          },
+          {
+            "id": "pressoterapia",
+            "name": "Pressoterapia",
+            "quantity": 2,
+            "status": "operational",
+            "notes": ""
+          },
+          {
+            "id": "radiofrequenza",
+            "name": "Radiofrequenza",
+            "quantity": 1,
+            "status": "maintenance",
+            "notes": "Macchinario di test in manutenzione"
+          }
+        ],
+        "schedule": [
+          {
+            "weekday": 1,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1140
+          },
+          {
+            "weekday": 2,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1140
+          },
+          {
+            "weekday": 3,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1140
+          },
+          {
+            "weekday": 4,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1140
+          },
+          {
+            "weekday": 5,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1140
+          },
+          {
+            "weekday": 6,
+            "isOpen": true,
+            "openMinuteOfDay": 540,
+            "closeMinuteOfDay": 1080
+          },
+          {
+            "weekday": 7,
+            "isOpen": false,
+            "openMinuteOfDay": null,
+            "closeMinuteOfDay": null
+          }
+        ],
         "featureFlags": {
           "clientOnlinePayments": true,
           "clientPromotions": false,
@@ -24,7 +115,9 @@
         },
         "clientRegistration": {
           "accessMode": "approval",
-          "extraFields": []
+          "extraFields": [],
+          "webThemeColor": "#8A493A",
+          "webFontFamily": "Montserrat"
         }
       },
       "enabled": true,

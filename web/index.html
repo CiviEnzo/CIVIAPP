@@ -114,7 +114,19 @@
   
   
   
-  <script src="flutter_bootstrap.js" async=""></script>
+  <script>
+    // Preserve iframe links generated before clean path URLs were enabled.
+    if (window.location.hash.startsWith('#/')) {
+      window.history.replaceState(null, '', window.location.hash.substring(1));
+    }
+    // Keep embedded public forms aligned with the latest deployed Flutter
+    // build even when an older service worker still controls this origin.
+    // Flutter's worker does not intercept URLs carrying this cache key.
+    const flutterBootstrap = document.createElement('script');
+    flutterBootstrap.src = `flutter_bootstrap.js?cache=${Date.now()}`;
+    flutterBootstrap.async = true;
+    document.body.appendChild(flutterBootstrap);
+  </script>
 
 
 </body></html>

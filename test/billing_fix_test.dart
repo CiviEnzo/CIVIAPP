@@ -11,6 +11,71 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
 void main() {
+  test('appointment amount uses the linked discounted sale total', () {
+    final ticket = PaymentTicket(
+      id: 'ticket-discounted-appointment',
+      salonId: 'salon-001',
+      appointmentId: 'appointment-discounted',
+      clientId: 'client-001',
+      serviceId: 'service-001',
+      appointmentStart: DateTime(2026, 7, 23, 10, 15),
+      appointmentEnd: DateTime(2026, 7, 23, 10, 45),
+      createdAt: DateTime(2026, 7, 23, 10),
+      status: PaymentTicketStatus.closed,
+      saleId: 'sale-discounted',
+      expectedTotal: 60,
+    );
+    final sale = Sale(
+      id: 'sale-discounted',
+      salonId: 'salon-001',
+      clientId: 'client-001',
+      items: [
+        SaleItem(
+          referenceId: 'service-001',
+          referenceType: SaleReferenceType.service,
+          description: 'Servizio',
+          quantity: 1,
+          unitPrice: 60,
+        ),
+      ],
+      total: 40,
+      discountAmount: 20,
+      createdAt: DateTime(2026, 7, 23, 21, 46),
+    );
+
+    expect(
+      resolveAppointmentSaleTotal(
+        appointmentId: ticket.appointmentId,
+        paymentTickets: [ticket],
+        sales: [sale],
+      ),
+      40,
+    );
+  });
+
+  test('appointment amount has no sale override without a linked sale', () {
+    final ticket = PaymentTicket(
+      id: 'ticket-open-appointment',
+      salonId: 'salon-001',
+      appointmentId: 'appointment-open',
+      clientId: 'client-001',
+      serviceId: 'service-001',
+      appointmentStart: DateTime(2026, 7, 23, 10, 15),
+      appointmentEnd: DateTime(2026, 7, 23, 10, 45),
+      createdAt: DateTime(2026, 7, 23, 10),
+      expectedTotal: 60,
+    );
+
+    expect(
+      resolveAppointmentSaleTotal(
+        appointmentId: ticket.appointmentId,
+        paymentTickets: [ticket],
+        sales: const [],
+      ),
+      isNull,
+    );
+  });
+
   test('closing ticket removes it from open list', () async {
     final store = AppDataStore(currentUser: null);
     expect(
@@ -218,6 +283,23 @@ void main() {
     expect(find.textContaining('Primo acconto'), findsOneWidget);
     expect(find.textContaining('Secondo acconto'), findsOneWidget);
     expect(find.textContaining('Pacchetto Relax'), findsWidgets);
+  });
+
+  testWidgets('billing action headers stay on one line', (tester) async {
+    final store = AppDataStore(currentUser: null);
+
+    await _pumpClientDetail(tester, store);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Fatturazione'));
+    await tester.pumpAndSettle();
+
+    final actionHeaders = tester.widgetList<Text>(find.text('Azioni')).toList();
+    expect(actionHeaders, isNotEmpty);
+    for (final header in actionHeaders) {
+      expect(header.maxLines, 1);
+      expect(header.softWrap, isFalse);
+    }
   });
 
   testWidgets('package deposit appears in history without restart', (

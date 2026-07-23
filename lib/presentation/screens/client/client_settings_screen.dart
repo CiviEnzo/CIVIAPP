@@ -1,12 +1,10 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/models/app_user.dart';
 import 'package:you_book/domain/entities/client.dart';
@@ -23,9 +21,6 @@ class ClientSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
-  static const String _notificationPrefsKeyPrefix =
-      'client_settings_notifications';
-
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _firstNameController;
   late final TextEditingController _lastNameController;
@@ -38,12 +33,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
   bool _isSigningOut = false;
   bool _isLeavingSalon = false;
   bool _preparingSalonSwitch = false;
-  bool _reminderNotificationsEnabled = true;
-  bool _promotionsNotificationsEnabled = true;
-  bool _lastMinuteNotificationsEnabled = true;
-  String? _notificationPrefsUserId;
-  bool _notificationPrefsLoaded = false;
-  SharedPreferences? _notificationPreferences;
 
   @override
   void initState() {
@@ -70,174 +59,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
         _hasUserEditedProfile = true;
       });
     }
-  }
-
-  Future<SharedPreferences> _ensureNotificationPrefs() async {
-    final cached = _notificationPreferences;
-    if (cached != null) {
-      return cached;
-    }
-    final resolved = await SharedPreferences.getInstance();
-    _notificationPreferences = resolved;
-    return resolved;
-  }
-
-  String _notificationPrefsKey(String userId) {
-    return '$_notificationPrefsKeyPrefix::$userId';
-  }
-
-  void _requestNotificationPrefs(String? userId) {
-    if (userId == null || userId.isEmpty) {
-      final needsReset =
-          _notificationPrefsUserId != null ||
-          !_notificationPrefsLoaded ||
-          !_reminderNotificationsEnabled ||
-          !_promotionsNotificationsEnabled ||
-          !_lastMinuteNotificationsEnabled;
-      if (!needsReset) {
-        return;
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _notificationPrefsUserId = null;
-          _notificationPrefsLoaded = true;
-          _reminderNotificationsEnabled = true;
-          _promotionsNotificationsEnabled = true;
-          _lastMinuteNotificationsEnabled = true;
-        });
-      });
-      return;
-    }
-
-    if (_notificationPrefsUserId == userId && _notificationPrefsLoaded) {
-      return;
-    }
-
-    _notificationPrefsUserId = userId;
-    _notificationPrefsLoaded = false;
-    Future.microtask(() => _restoreNotificationPrefs(userId));
-  }
-
-  Future<void> _restoreNotificationPrefs(String userId) async {
-    SharedPreferences prefs;
-    try {
-      prefs = await _ensureNotificationPrefs();
-    } catch (_) {
-      if (!mounted || _notificationPrefsUserId != userId) {
-        return;
-      }
-      setState(() {
-        _notificationPrefsLoaded = true;
-        _reminderNotificationsEnabled = true;
-        _promotionsNotificationsEnabled = true;
-        _lastMinuteNotificationsEnabled = true;
-      });
-      return;
-    }
-
-    final raw = prefs.getString(_notificationPrefsKey(userId));
-    if (!mounted || _notificationPrefsUserId != userId) {
-      return;
-    }
-
-    if (raw == null || raw.isEmpty) {
-      setState(() {
-        _notificationPrefsLoaded = true;
-        _reminderNotificationsEnabled = true;
-        _promotionsNotificationsEnabled = true;
-        _lastMinuteNotificationsEnabled = true;
-      });
-      return;
-    }
-
-    try {
-      final decoded = jsonDecode(raw);
-      bool _resolve(dynamic value, bool fallback) {
-        if (value is bool) {
-          return value;
-        }
-        if (value is num) {
-          return value != 0;
-        }
-        if (value is String) {
-          final lower = value.toLowerCase().trim();
-          if (lower == 'true' || lower == '1') {
-            return true;
-          }
-          if (lower == 'false' || lower == '0') {
-            return false;
-          }
-        }
-        return fallback;
-      }
-
-      if (decoded is Map<String, dynamic>) {
-        setState(() {
-          _notificationPrefsLoaded = true;
-          _reminderNotificationsEnabled = _resolve(decoded['reminder'], true);
-          _promotionsNotificationsEnabled = _resolve(
-            decoded['promotions'],
-            true,
-          );
-          _lastMinuteNotificationsEnabled = _resolve(
-            decoded['lastMinute'],
-            true,
-          );
-        });
-        return;
-      }
-    } catch (_) {
-      // Fall through to reset below.
-    }
-
-    setState(() {
-      _notificationPrefsLoaded = true;
-      _reminderNotificationsEnabled = true;
-      _promotionsNotificationsEnabled = true;
-      _lastMinuteNotificationsEnabled = true;
-    });
-  }
-
-  Future<void> _persistNotificationPrefs() async {
-    final userId = _notificationPrefsUserId;
-    if (userId == null || userId.isEmpty) {
-      return;
-    }
-
-    try {
-      final prefs = await _ensureNotificationPrefs();
-      final payload = jsonEncode({
-        'reminder': _reminderNotificationsEnabled,
-        'promotions': _promotionsNotificationsEnabled,
-        'lastMinute': _lastMinuteNotificationsEnabled,
-      });
-      await prefs.setString(_notificationPrefsKey(userId), payload);
-    } catch (_) {
-      // Ignored: preferenze opzionali.
-    }
-  }
-
-  void _updateNotificationPrefs({
-    bool? reminder,
-    bool? promotions,
-    bool? lastMinute,
-  }) {
-    setState(() {
-      if (reminder != null) {
-        _reminderNotificationsEnabled = reminder;
-      }
-      if (promotions != null) {
-        _promotionsNotificationsEnabled = promotions;
-      }
-      if (lastMinute != null) {
-        _lastMinuteNotificationsEnabled = lastMinute;
-      }
-      _notificationPrefsLoaded = true;
-    });
-    unawaited(_persistNotificationPrefs());
   }
 
   void _syncControllersFromClient(Client? client) {
@@ -289,7 +110,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
       (client) => client.id == session.userId,
     );
     _syncControllersFromClient(currentClient);
-    _requestNotificationPrefs(session.userId);
 
     final themedData = ClientTheme.resolve(Theme.of(context));
 
@@ -370,128 +190,6 @@ class _ClientSettingsScreenState extends ConsumerState<ClientSettingsScreen> {
                                           themedContext,
                                           session,
                                         ),
-                              ),
-                              const SizedBox(height: 16),
-                              Card(
-                                elevation: 0,
-                                clipBehavior: Clip.antiAlias,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  side: BorderSide(
-                                    color: theme.colorScheme.outline
-                                        .withOpacity(0.15),
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color:
-                                            theme
-                                                .colorScheme
-                                                .secondaryContainer,
-                                        borderRadius:
-                                            const BorderRadius.vertical(
-                                              top: Radius.circular(20),
-                                            ),
-                                      ),
-                                      padding: const EdgeInsets.fromLTRB(
-                                        20,
-                                        16,
-                                        20,
-                                        12,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  'Notifiche',
-                                                  style: theme
-                                                      .textTheme
-                                                      .titleMedium
-                                                      ?.copyWith(
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                        color:
-                                                            theme
-                                                                .colorScheme
-                                                                .onSecondaryContainer,
-                                                      ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  'Scegli quali aggiornamenti ricevere dall\'app.',
-                                                  style: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: theme
-                                                            .colorScheme
-                                                            .onSecondaryContainer
-                                                            .withOpacity(0.85),
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Icon(
-                                            Icons.notifications_rounded,
-                                            color: theme
-                                                .colorScheme
-                                                .onSecondaryContainer
-                                                .withOpacity(0.9),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    _NotificationPreferenceTile(
-                                      icon: Icons.alarm_rounded,
-                                      iconColor: theme.colorScheme.primary,
-                                      title: 'Reminder appuntamenti',
-                                      subtitle:
-                                          'Ricevi aggiornamenti prima dei tuoi appuntamenti',
-                                      value: _reminderNotificationsEnabled,
-                                      onChanged:
-                                          (value) => _updateNotificationPrefs(
-                                            reminder: value,
-                                          ),
-                                      isFirst: true,
-                                    ),
-                                    _NotificationPreferenceTile(
-                                      icon: Icons.local_offer_rounded,
-                                      iconColor: theme.colorScheme.tertiary,
-                                      title: 'Promozioni',
-                                      subtitle:
-                                          'Scopri in anticipo offerte e novità',
-                                      value: _promotionsNotificationsEnabled,
-                                      onChanged:
-                                          (value) => _updateNotificationPrefs(
-                                            promotions: value,
-                                          ),
-                                    ),
-                                    _NotificationPreferenceTile(
-                                      icon: Icons.flash_on_rounded,
-                                      iconColor: theme.colorScheme.secondary,
-                                      title: 'Last minute',
-                                      subtitle:
-                                          'Ricevi occasioni last minute disponibili',
-                                      value: _lastMinuteNotificationsEnabled,
-                                      onChanged:
-                                          (value) => _updateNotificationPrefs(
-                                            lastMinute: value,
-                                          ),
-                                      isLast: true,
-                                    ),
-                                  ],
-                                ),
                               ),
                               const SizedBox(height: 16),
                               Card(
@@ -1104,123 +802,19 @@ class _MissingProfileState extends StatelessWidget {
   }
 }
 
-class _NotificationPreferenceTile extends StatelessWidget {
-  const _NotificationPreferenceTile({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-    this.isFirst = false,
-    this.isLast = false,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  final bool isFirst;
-  final bool isLast;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final borderRadius = BorderRadius.vertical(
-      top: isFirst ? const Radius.circular(20) : Radius.zero,
-      bottom: isLast ? const Radius.circular(20) : Radius.zero,
-    );
-
-    return Column(
-      children: [
-        if (!isFirst)
-          Divider(
-            height: 1,
-            indent: 20,
-            endIndent: 20,
-            color: colorScheme.outline.withOpacity(0.12),
-          ),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: borderRadius,
-            onTap: () => onChanged(!value),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: Row(
-                children: [
-                  _SettingsIconAvatar(
-                    icon: icon,
-                    color: iconColor,
-                    backgroundOpacity:
-                        theme.brightness == Brightness.dark ? 0.25 : 0.15,
-                    radius: 20,
-                    iconSize: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Switch.adaptive(
-                    value: value,
-                    onChanged: onChanged,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    activeColor: iconColor,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _SettingsIconAvatar extends StatelessWidget {
-  const _SettingsIconAvatar({
-    required this.icon,
-    required this.color,
-    this.backgroundOpacity = 0.14,
-    this.radius = 22,
-    this.iconSize = 24,
-  });
+  const _SettingsIconAvatar({required this.icon, required this.color});
 
   final IconData icon;
   final Color color;
-  final double backgroundOpacity;
-  final double radius;
-  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     return CircleAvatar(
-      radius: radius,
-      backgroundColor: color.withOpacity(backgroundOpacity),
+      radius: 22,
+      backgroundColor: color.withOpacity(0.14),
       foregroundColor: color,
-      child: Icon(icon, size: iconSize),
+      child: Icon(icon, size: 24),
     );
   }
 }

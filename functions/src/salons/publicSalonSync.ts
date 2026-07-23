@@ -1,12 +1,31 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 
 const firestore = admin.firestore;
 const functionsEU = functions.region('europe-west1');
 
 const COLLECTION_PUBLIC_SALONS = 'public_salons';
+const COLLECTION_PUBLIC_PROMOTIONS = 'public_promotions';
 
 type SalonSnapshot = admin.firestore.DocumentData;
+
+function slugify(value: string, fallback: string): string {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function buildSalonSlug(salonId: string, salonName: string): string {
+  const suffix = salonId.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toLowerCase();
+  const base = slugify(salonName, 'salone');
+  return suffix ? `${base}-${suffix}` : base;
+}
 
 function readString(value: unknown): string | undefined {
   if (typeof value === 'string') {
@@ -42,6 +61,27 @@ function readStringArray(value: unknown): string[] {
   return value
     .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
     .filter((item) => item.length > 0);
+}
+
+function normalizeFirestoreValues(value: unknown): unknown {
+  if (value === undefined) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeFirestoreValues);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+  const result: Record<string, unknown> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+    result[key] = normalizeFirestoreValues(item);
+  });
+  return result;
 }
 
 function readIntMap(value: unknown): Record<string, number> {
@@ -96,11 +136,184 @@ function sanitizeClientRegistration(input: unknown): Record<string, unknown> {
         .map((item) => item.trim())
         .filter((item) => item.length > 0)
     : [];
+  const requestedThemeColor = readString(data.webThemeColor) ?? '#6750A4';
+  const webThemeColor = /^#[0-9a-fA-F]{6}$/.test(requestedThemeColor)
+    ? requestedThemeColor.toUpperCase()
+    : '#6750A4';
+  const allowedFonts = new Set([
+    'system',
+    'DM Sans',
+    'Inter',
+    'Lato',
+    'Montserrat',
+    'Playfair Display',
+    'playfairDmSans',
+    'Poppins',
+  ]);
+  const requestedFont = readString(data.webFontFamily) ?? 'system';
+  const webFontFamily = allowedFonts.has(requestedFont) ? requestedFont : 'system';
 
-  return {
+  const result: Record<string, unknown> = {
     accessMode,
     extraFields,
+    webFormEnabled: readBoolean(data.webFormEnabled, false),
+    webFormTitle: readString(data.webFormTitle) ?? 'Registrati al salone',
+    webFormDescription: readString(data.webFormDescription),
+    webFormConfirmationMessage:
+      readString(data.webFormConfirmationMessage) ??
+      'Grazie, i tuoi dati sono stati inviati al salone.',
+    privacyPolicyUrl: readString(data.privacyPolicyUrl),
+    privacyVersion: readString(data.privacyVersion) ?? '1',
+    marketingConsentEnabled: readBoolean(data.marketingConsentEnabled, true),
+    webThemeColor,
+    webFontFamily,
   };
+  Object.keys(result).forEach((key) => {
+    if (result[key] === undefined) {
+      delete result[key];
+    }
+  });
+  return result;
+}
+
+function sanitizePromotionLanding(input: unknown, title: string): Record<string, unknown> {
+  const data = input && typeof input === 'object'
+    ? input as Record<string, unknown>
+    : {};
+  const interestOptions = readStringArray(data.interestOptions)
+    .slice(0, 12)
+    .map((value) => value.slice(0, 80));
+  const allowedFonts = new Set([
+    'system',
+    'DM Sans',
+    'Montserrat',
+    'Lato',
+    'Poppins',
+    'playfairDmSans',
+  ]);
+  const requestedFont = readString(data.fontFamily) ?? 'playfairDmSans';
+  const allowedTemplates = new Set([
+    'editorialBeauty',
+    'minimalGlow',
+    'studioPop',
+    'botanicalRitual',
+  ]);
+  const requestedTemplate = readString(data.templateId) ?? 'editorialBeauty';
+  return {
+    enabled: readBoolean(data.enabled, false),
+    slug: slugify(readString(data.slug) ?? title, 'promozione'),
+    eyebrow: readString(data.eyebrow) ?? 'Offerta esclusiva',
+    formTitle: readString(data.formTitle) ?? 'Richiedi informazioni',
+    formDescription:
+      readString(data.formDescription) ??
+      'Compila il modulo: il salone ti ricontatterà per fornirti tutti i dettagli.',
+    submitLabel: readString(data.submitLabel) ?? 'Richiedi informazioni',
+    interestOptions,
+    offerPrice: readString(data.offerPrice),
+    originalPrice: readString(data.originalPrice),
+    fontFamily: allowedFonts.has(requestedFont) ? requestedFont : 'playfairDmSans',
+    templateId: allowedTemplates.has(requestedTemplate)
+      ? requestedTemplate
+      : 'editorialBeauty',
+  };
+}
+
+function sanitizePromotionSections(input: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(input)) return [];
+  return input.slice(0, 30).map((raw, index) => {
+    const data = raw && typeof raw === 'object'
+      ? raw as Record<string, unknown>
+      : {};
+    return {
+      id: readString(data.id) ?? `section-${index + 1}`,
+      type: readString(data.type) === 'image' ? 'image' : 'text',
+      order: readNumber(data.order) ?? index,
+      title: readString(data.title),
+      text: readString(data.text),
+      imageUrl: readString(data.imageUrl),
+      altText: readString(data.altText),
+      caption: readString(data.caption),
+      layout: readString(data.layout) ?? 'full',
+      visible: readBoolean(data.visible, true),
+    };
+  });
+}
+
+export const publicSalonSyncTestHelpers = {
+  sanitizePromotionLanding,
+};
+
+async function deletePublicPromotionsForSalon(salonId: string): Promise<void> {
+  const snapshot = await firestore()
+    .collection(COLLECTION_PUBLIC_PROMOTIONS)
+    .where('salonId', '==', salonId)
+    .get();
+  if (snapshot.empty) return;
+  const batch = firestore().batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+}
+
+async function syncPublicPromotionDocument(
+  promotionId: string,
+  promotion: admin.firestore.DocumentData | null,
+): Promise<void> {
+  const publicRef = firestore().collection(COLLECTION_PUBLIC_PROMOTIONS).doc(promotionId);
+  if (!promotion) {
+    await publicRef.delete();
+    return;
+  }
+  const salonId = readString(promotion.salonId);
+  const title = readString(promotion.title) ?? '';
+  const landing = sanitizePromotionLanding(promotion.webLanding, title);
+  const isPublic =
+    salonId &&
+    landing.enabled === true &&
+    readBoolean(promotion.isActive, false) &&
+    readString(promotion.status) === 'published';
+  if (!isPublic || !salonId) {
+    await publicRef.delete();
+    return;
+  }
+  const salonSnapshot = await firestore().collection('salons').doc(salonId).get();
+  const salon = salonSnapshot.data();
+  if (!salonSnapshot.exists || !salon || !readBoolean(salon.isPublished, false) ||
+      (readString(salon.status) ?? 'active') !== 'active') {
+    await publicRef.delete();
+    return;
+  }
+  const salonName = readString(salon.name) ?? '';
+  const salonSlug = buildSalonSlug(salonId, salonName);
+  const publicPayload = normalizeFirestoreValues({
+    promotionId,
+    salonId,
+    salonSlug,
+    promotionSlug: landing.slug,
+    title,
+    subtitle: readString(promotion.subtitle),
+    tagline: readString(promotion.tagline),
+    coverImageUrl: readString(promotion.coverImageUrl) ?? readString(promotion.imageUrl),
+    themeColor: promotion.themeColor ?? null,
+    discountPercentage: readNumber(promotion.discountPercentage) ?? 0,
+    startsAt: promotion.startsAt ?? null,
+    endsAt: promotion.endsAt ?? null,
+    sections: sanitizePromotionSections(promotion.sections),
+    webLanding: landing,
+    salon: {
+      name: salonName,
+      phone: readString(salon.phone) ?? '',
+      email: readString(salon.email) ?? '',
+      city: readString(salon.city) ?? '',
+      logoImageUrl: readString(salon.logoImageUrl) ?? readString(salon.logoUrl),
+      privacyPolicyUrl:
+        readString((salon.clientRegistration as Record<string, unknown> | undefined)?.privacyPolicyUrl),
+      privacyVersion:
+        readString((salon.clientRegistration as Record<string, unknown> | undefined)?.privacyVersion) ?? '1',
+    },
+    status: 'published',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }) as Record<string, unknown>;
+  await publicRef.set(publicPayload, { merge: true });
 }
 
 async function loadPublicServices(salonId: string): Promise<Record<string, unknown>[]> {
@@ -316,12 +529,14 @@ export const syncPublicSalonDirectory = functionsEU.firestore
 
     if (!after) {
       await publicRef.delete();
+      await deletePublicPromotionsForSalon(salonId);
       return;
     }
 
     const isPublished = Boolean(after.isPublished);
     if (!isPublished) {
       await publicRef.delete();
+      await deletePublicPromotionsForSalon(salonId);
       return;
     }
 
@@ -336,7 +551,29 @@ export const syncPublicSalonDirectory = functionsEU.firestore
     }
 
     await publicRef.set(payload, { merge: true });
+
+    const promotions = await firestore()
+      .collection('promotions')
+      .where('salonId', '==', salonId)
+      .get();
+    await Promise.all(
+      promotions.docs.map((doc) => syncPublicPromotionDocument(doc.id, doc.data())),
+    );
   });
+
+export const syncPublicPromotionLandingV2 = onDocumentWritten(
+  {
+    document: 'promotions/{promotionId}',
+    region: 'europe-west1',
+  },
+  async (event) => {
+    const after = event.data?.after;
+    await syncPublicPromotionDocument(
+      event.params.promotionId,
+      after?.exists ? after.data() ?? null : null,
+    );
+  },
+);
 
 export const syncPublicSalonCatalogOnServiceWrite = functionsEU.firestore
   .document('services/{serviceId}')

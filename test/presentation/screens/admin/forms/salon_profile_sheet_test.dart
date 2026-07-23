@@ -58,6 +58,10 @@ void main() {
       find.widgetWithText(TextField, 'Email'),
       'nuovo@salon.test',
     );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Link prenotazioni'),
+      'https://salon.test/prenota',
+    );
     await tester.tap(find.text('Salva'));
     await tester.pumpAndSettle();
 
@@ -65,6 +69,7 @@ void main() {
     expect(result!.name, 'Nuovo Salone');
     expect(result!.phone, '+390612345678');
     expect(result!.email, 'nuovo@salon.test');
+    expect(result!.bookingLink, 'https://salon.test/prenota');
     expect(result!.address, salon.address);
   });
 
@@ -74,6 +79,7 @@ void main() {
       name: 'Nuovo Salone',
       phone: '+390612345678',
       email: 'nuovo@salon.test',
+      bookingLink: 'https://salon.test/prenota',
     );
     final store = _TestAppDataStore(
       AppDataState.initial().copyWith(salons: <Salon>[current]),
@@ -87,9 +93,11 @@ void main() {
     expect(updated.name, 'Nuovo Salone');
     expect(updated.phone, '+390612345678');
     expect(updated.email, 'nuovo@salon.test');
+    expect(updated.bookingLink, 'https://salon.test/prenota');
     expect(store.state.salons.single.name, 'Nuovo Salone');
     expect(store.state.salons.single.phone, '+390612345678');
     expect(store.state.salons.single.email, 'nuovo@salon.test');
+    expect(store.state.salons.single.bookingLink, 'https://salon.test/prenota');
   });
 }
 

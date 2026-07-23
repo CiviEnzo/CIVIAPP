@@ -224,8 +224,8 @@ class _FirstPasswordChangeScreenState
             .read(sessionControllerProvider.notifier)
             .updateUser(user.copyWith(mustChangePassword: false));
       }
-      ref.invalidate(appUserProvider);
-      ref.read(appRouterProvider).go(_destinationForRole(session.role));
+      final updatedSession = ref.read(sessionControllerProvider);
+      ref.read(appRouterProvider).go(_destinationForSession(updatedSession));
     } on Exception catch (error) {
       if (!mounted) {
         return;
@@ -259,8 +259,15 @@ class _FirstPasswordChangeScreenState
   }
 }
 
-String _destinationForRole(UserRole? role) {
-  switch (role) {
+String _destinationForSession(SessionState session) {
+  if (session.role == UserRole.client &&
+      session.user?.clientId != null &&
+      session.salonId != null &&
+      session.availableSalonIds.contains(session.salonId)) {
+    return '/client/dashboard';
+  }
+
+  switch (session.role) {
     case UserRole.admin:
       return '/admin';
     case UserRole.staff:

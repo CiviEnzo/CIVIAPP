@@ -4,11 +4,11 @@ import 'dart:typed_data';
 import 'package:csv/csv.dart';
 import 'package:you_book/domain/entities/appointment.dart';
 import 'package:you_book/domain/entities/client.dart';
-import 'package:you_book/domain/entities/client_app_movement.dart';
 import 'package:you_book/domain/entities/client_import.dart';
 import 'package:you_book/domain/entities/sale.dart';
 import 'package:you_book/domain/entities/salon.dart';
 import 'package:you_book/domain/entities/salon_access_request.dart';
+import 'package:you_book/domain/entities/web_client_request.dart';
 import 'package:you_book/app/providers.dart';
 import 'package:you_book/data/repositories/auth_repository.dart';
 import 'package:you_book/presentation/common/bottom_sheet_utils.dart';
@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:you_book/services/clients/web_client_request_service.dart';
 
 class ClientsModule extends ConsumerStatefulWidget {
   const ClientsModule({super.key, this.salonId});
@@ -36,6 +38,7 @@ class ClientsModule extends ConsumerStatefulWidget {
 class _ClientsModuleState extends ConsumerState<ClientsModule> {
   final Set<String> _sendingInvites = <String>{};
   final Set<String> _processingRequests = <String>{};
+  final Set<String> _processingWebRequests = <String>{};
   final TextEditingController _generalQueryController = TextEditingController();
   final TextEditingController _clientNumberController = TextEditingController();
   ProviderSubscription<ClientsModuleIntent?>? _intentSubscription;
@@ -752,6 +755,327 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     }
   }
 
+  Future<void> _processWebRequest(
+    WebClientRequest request, {
+    required String action,
+    String? linkedClientId,
+  }) async {
+    if (_processingWebRequests.contains(request.id)) return;
+    setState(() => _processingWebRequests.add(request.id));
+    try {
+      final clientId = await WebClientRequestService().process(
+        requestId: request.id,
+        action: action,
+        linkedClientId: linkedClientId,
+      );
+      if (!mounted) return;
+      final message = switch (action) {
+        'accept' when linkedClientId != null =>
+          'Richiesta collegata al cliente.',
+        'accept' => 'Cliente creato correttamente.',
+        'reject' => 'Arrivo web rifiutato.',
+        _ => 'Arrivo web archiviato.',
+      };
+      ScaffoldMessenger.of(
+        context,
+      ).showAppSnackBar(SnackBar(content: Text(message)));
+      if (clientId != null && action == 'accept') {
+        final client = ref
+            .read(appDataProvider)
+            .clients
+            .firstWhereOrNull((item) => item.id == clientId);
+        if (client != null) _focusOnClient(client);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showAppSnackBar(
+        SnackBar(content: Text('Impossibile elaborare la richiesta: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _processingWebRequests.remove(request.id));
+    }
+  }
+
+  Future<void> _confirmCreateFromWeb(WebClientRequest request) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Crea nuovo cliente'),
+            content: Text(
+              'Vuoi creare l’anagrafica di ${request.fullName}? '
+              'Non verrà creato automaticamente un account per l’app.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Annulla'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Crea cliente'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed == true) {
+      await _processWebRequest(request, action: 'accept');
+    }
+  }
+
+  Future<void> _linkWebRequest(
+    WebClientRequest request,
+    List<Client> salonClients,
+  ) async {
+    if (salonClients.isEmpty) return;
+    final candidates = [...salonClients]..sort((a, b) {
+      final aPreferred = request.duplicateCandidateClientIds.contains(a.id);
+      final bPreferred = request.duplicateCandidateClientIds.contains(b.id);
+      if (aPreferred != bPreferred) return aPreferred ? -1 : 1;
+      return a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase());
+    });
+    String? selectedId = candidates.first.id;
+    final selected = await showDialog<String>(
+      context: context,
+      builder:
+          (dialogContext) => StatefulBuilder(
+            builder:
+                (context, setDialogState) => AlertDialog(
+                  title: const Text('Collega a cliente esistente'),
+                  content: SizedBox(
+                    width: 480,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: selectedId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Cliente'),
+                      items: candidates
+                          .map(
+                            (client) => DropdownMenuItem(
+                              value: client.id,
+                              child: Text(
+                                '${client.fullName} · ${client.phone.isEmpty ? client.email ?? '' : client.phone}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged:
+                          (value) => setDialogState(() => selectedId = value),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Annulla'),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          selectedId == null
+                              ? null
+                              : () =>
+                                  Navigator.of(dialogContext).pop(selectedId),
+                      child: const Text('Collega'),
+                    ),
+                  ],
+                ),
+          ),
+    );
+    if (selected != null) {
+      await _processWebRequest(
+        request,
+        action: 'accept',
+        linkedClientId: selected,
+      );
+    }
+  }
+
+  Widget _buildWebRequestsCard({
+    required List<WebClientRequest> requests,
+    required List<Client> salonClients,
+  }) {
+    final theme = Theme.of(context);
+    final dateTimeFormat = DateFormat('dd/MM/yyyy HH:mm');
+    return Column(
+      children: [
+        for (var index = 0; index < requests.length; index++) ...[
+          Builder(
+            builder: (context) {
+              final request = requests[index];
+              final processing = _processingWebRequests.contains(request.id);
+              final contact =
+                  request.phone.isNotEmpty ? request.phone : request.email;
+              final requestSalonClients = salonClients
+                  .where((client) => client.salonId == request.salonId)
+                  .toList(growable: false);
+              return Card(
+                elevation: 0,
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            child: Text(
+                              _clientInitialFromName(
+                                request.firstName,
+                                request.lastName,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  request.fullName,
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  request.createdAt == null
+                                      ? 'Data non disponibile'
+                                      : 'Arrivato il ${dateTimeFormat.format(request.createdAt!)}',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (request.hasPossibleDuplicates)
+                            const Chip(
+                              avatar: Icon(
+                                Icons.content_copy_rounded,
+                                size: 16,
+                              ),
+                              label: Text('Possibile duplicato'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      if (request.phone.isNotEmpty)
+                        Text('Telefono: ${request.phone}'),
+                      if (request.email.isNotEmpty)
+                        Text('Email: ${request.email}'),
+                      if (request.dateOfBirth != null)
+                        Text(
+                          'Data di nascita: ${DateFormat('dd/MM/yyyy').format(request.dateOfBirth!)}',
+                        ),
+                      if (request.utmCampaign?.isNotEmpty == true)
+                        Text('Campagna: ${request.utmCampaign}'),
+                      if (request.promotionTitle?.isNotEmpty == true)
+                        Text(
+                          'Promozione: ${request.promotionTitle}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      Text(
+                        request.consents.marketingAccepted
+                            ? 'Marketing: consenso acquisito'
+                            : 'Marketing: consenso non acquisito',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      if (request.extraData.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        for (final entry in request.extraData.entries)
+                          if (entry.value.toString().trim().isNotEmpty)
+                            Text(
+                              '${_webExtraLabel(entry.key)}: ${entry.value}',
+                            ),
+                      ],
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed:
+                                processing
+                                    ? null
+                                    : () => _confirmCreateFromWeb(request),
+                            icon:
+                                processing
+                                    ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : const Icon(
+                                      Icons.person_add_alt_1_rounded,
+                                    ),
+                            label: const Text('Crea cliente'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed:
+                                processing || requestSalonClients.isEmpty
+                                    ? null
+                                    : () => _linkWebRequest(
+                                      request,
+                                      requestSalonClients,
+                                    ),
+                            icon: const Icon(Icons.link_rounded),
+                            label: const Text('Collega'),
+                          ),
+                          if (contact.isNotEmpty)
+                            OutlinedButton.icon(
+                              onPressed:
+                                  () => launchUrl(
+                                    Uri.parse(
+                                      request.phone.isNotEmpty
+                                          ? 'tel:${request.phone}'
+                                          : 'mailto:${request.email}',
+                                    ),
+                                  ),
+                              icon: const Icon(Icons.contact_phone_outlined),
+                              label: const Text('Contatta'),
+                            ),
+                          TextButton.icon(
+                            onPressed:
+                                processing
+                                    ? null
+                                    : () => _processWebRequest(
+                                      request,
+                                      action: 'reject',
+                                    ),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Rifiuta'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          if (index != requests.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  String _clientInitialFromName(String firstName, String lastName) {
+    final value =
+        firstName.trim().isNotEmpty ? firstName.trim() : lastName.trim();
+    return value.isEmpty ? '?' : value.characters.first.toUpperCase();
+  }
+
+  String _webExtraLabel(String key) => switch (key) {
+    'address' => 'Città',
+    'profession' => 'Professione',
+    'referralSource' => 'Come ci ha conosciuto',
+    'notes' => 'Note',
+    'gender' => 'Sesso',
+    'interest' => 'Interesse',
+    _ => key,
+  };
+
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(appDataProvider);
@@ -791,6 +1115,19 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
             .where(
               (request) =>
                   request.status == SalonAccessRequestStatus.pending &&
+                  (widget.salonId == null || request.salonId == widget.salonId),
+            )
+            .toList()
+          ..sort((a, b) {
+            final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return right.compareTo(left);
+          });
+    final pendingWebRequests =
+        data.webClientRequests
+            .where(
+              (request) =>
+                  request.status == WebClientRequestStatus.newRequest &&
                   (widget.salonId == null || request.salonId == widget.salonId),
             )
             .toList()
@@ -872,7 +1209,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
         }).length;
     final activeAppClientIds = _collectActiveAppClientIds(
       salonClients: salonClients,
-      clientAppMovements: data.clientAppMovements,
+      now: DateTime.now(),
     );
     final appActiveClients = activeAppClientIds.length;
     final recentClients = [...salonClients]..sort((a, b) {
@@ -1150,6 +1487,25 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       ],
     );
 
+    final webRequestsTab = ListView(
+      padding: pagePadding,
+      children: [
+        if (pendingWebRequests.isEmpty)
+          _buildPlaceholder(
+            context: context,
+            icon: Icons.language_rounded,
+            title: 'Nessun arrivo dal web',
+            message:
+                'Le richieste inviate dal modulo anagrafico del sito compariranno qui.',
+          )
+        else
+          _buildWebRequestsCard(
+            requests: pendingWebRequests,
+            salonClients: salonClients,
+          ),
+      ],
+    );
+
     final List<Widget> latestChildren = [];
     if (latestClients.isEmpty) {
       latestChildren.add(
@@ -1271,7 +1627,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     final showPrimaryNavigation = !showDetailOnly;
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Stack(
         children: [
           Column(
@@ -1325,17 +1681,27 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       labelColor: theme.colorScheme.onPrimaryContainer,
                       unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                       dividerColor: Colors.transparent,
-                      tabs: const [
-                        Tab(icon: Icon(Icons.search_rounded), text: 'Ricerca'),
-                        Tab(
+                      tabs: [
+                        const Tab(
+                          icon: Icon(Icons.search_rounded),
+                          text: 'Ricerca',
+                        ),
+                        const Tab(
                           icon: Icon(Icons.filter_alt_rounded),
                           text: 'Ricerca avanzata',
                         ),
-                        Tab(
+                        const Tab(
                           icon: Icon(Icons.how_to_reg_outlined),
                           text: 'Richieste',
                         ),
                         Tab(
+                          icon: const Icon(Icons.language_rounded),
+                          text:
+                              pendingWebRequests.isEmpty
+                                  ? 'Arrivi dal web'
+                                  : 'Arrivi dal web (${pendingWebRequests.length})',
+                        ),
+                        const Tab(
                           icon: Icon(Icons.fiber_new_rounded),
                           text: 'Ultimi',
                         ),
@@ -1375,6 +1741,7 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                               isSendingInvite: _isSending,
                             ),
                             requestsTab,
+                            webRequestsTab,
                             latestTab,
                           ],
                         ),
@@ -1613,10 +1980,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     final theme = Theme.of(context);
     final client = entry.client;
     final isSelected = client.id == _selectedClientId;
-    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
+    final hasActiveApp = _hasActiveApp(client, activeAppClientIds);
     final emailAvailable = client.email?.trim().isNotEmpty == true;
     final isSending = _isSending(client.id);
-    final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
+    final canSendAppLink = emailAvailable && !isSending && !hasActiveApp;
 
     return Material(
       color:
@@ -1678,8 +2045,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                     ),
                     IconButton(
                       tooltip:
-                          hasInstalledApp
-                              ? 'App gia scaricata'
+                          hasActiveApp
+                              ? 'App gia attiva'
                               : emailAvailable
                               ? 'Invia link app'
                               : 'Email non disponibile',
@@ -1719,10 +2086,10 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     final theme = Theme.of(context);
     final client = entry.client;
     final isSelected = client.id == _selectedClientId;
-    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
+    final hasActiveApp = _hasActiveApp(client, activeAppClientIds);
     final emailAvailable = client.email?.trim().isNotEmpty == true;
     final isSending = _isSending(client.id);
-    final canSendAppLink = emailAvailable && !isSending && !hasInstalledApp;
+    final canSendAppLink = emailAvailable && !isSending && !hasActiveApp;
 
     Widget infoRow(String label, String value, {Color? valueColor}) {
       return Padding(
@@ -1782,8 +2149,8 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
                       ),
                       IconButton(
                         tooltip:
-                            hasInstalledApp
-                                ? 'App gia scaricata'
+                            hasActiveApp
+                                ? 'App gia attiva'
                                 : emailAvailable
                                 ? 'Invia link app'
                                 : 'Email non disponibile',
@@ -1854,31 +2221,15 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
 
   Set<String> _collectActiveAppClientIds({
     required Iterable<Client> salonClients,
-    required Iterable<ClientAppMovement> clientAppMovements,
+    required DateTime now,
   }) {
-    final allowedClientIds = salonClients.map((client) => client.id).toSet();
-    final activeClientIds = <String>{};
-
-    for (final client in salonClients) {
-      if (client.fcmTokens.isNotEmpty) {
-        activeClientIds.add(client.id);
-      }
-    }
-
-    for (final movement in clientAppMovements) {
-      if (widget.salonId != null && movement.salonId != widget.salonId) {
-        continue;
-      }
-      if (!allowedClientIds.contains(movement.clientId)) {
-        continue;
-      }
-      activeClientIds.add(movement.clientId);
-    }
-
-    return activeClientIds;
+    return salonClients
+        .where((client) => client.isNativeAppActiveAt(now))
+        .map((client) => client.id)
+        .toSet();
   }
 
-  bool _hasInstalledApp(Client client, Set<String> activeAppClientIds) {
+  bool _hasActiveApp(Client client, Set<String> activeAppClientIds) {
     return activeAppClientIds.contains(client.id);
   }
 
@@ -1888,13 +2239,16 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
   }
 
   String _appStatusLabel(Client client, Set<String> activeAppClientIds) {
-    if (_hasInstalledApp(client, activeAppClientIds)) {
-      return 'Scaricata';
+    if (_hasActiveApp(client, activeAppClientIds)) {
+      return 'App attiva';
+    }
+    if (client.hasOpenedNativeApp) {
+      return 'App inattiva';
     }
     if (_hasInvitationLink(client)) {
       return 'Link inviato';
     }
-    return 'Non scaricata';
+    return 'Mai aperta';
   }
 
   Widget _buildAppStatusChip(
@@ -1903,17 +2257,27 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
     Set<String> activeAppClientIds,
   ) {
     final theme = Theme.of(context);
-    final hasInstalledApp = _hasInstalledApp(client, activeAppClientIds);
+    final hasActiveApp = _hasActiveApp(client, activeAppClientIds);
     final hasInvitationLink = _hasInvitationLink(client);
+    final lastAppSeenAt = client.lastAppSeenAt;
+    final appStatusTooltip =
+        lastAppSeenAt == null
+            ? _appStatusLabel(client, activeAppClientIds)
+            : '${_appStatusLabel(client, activeAppClientIds)} · Ultimo utilizzo: '
+                '${DateFormat('dd/MM/yyyy HH:mm').format(lastAppSeenAt)}';
 
     late final Color background;
     late final Color foreground;
     late final IconData icon;
 
-    if (hasInstalledApp) {
+    if (hasActiveApp) {
       background = const Color(0xFFE7F6EC);
       foreground = const Color(0xFF166534);
-      icon = Icons.download_done_rounded;
+      icon = Icons.phone_android_rounded;
+    } else if (client.hasOpenedNativeApp) {
+      background = theme.colorScheme.surfaceContainerHighest;
+      foreground = theme.colorScheme.onSurfaceVariant;
+      icon = Icons.phone_android_outlined;
     } else if (hasInvitationLink) {
       background = const Color(0xFFFFF4DB);
       foreground = const Color(0xFF92400E);
@@ -1924,27 +2288,30 @@ class _ClientsModuleState extends ConsumerState<ClientsModule> {
       icon = Icons.phone_iphone_outlined;
     }
 
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: foreground),
-            const SizedBox(width: 6),
-            Text(
-              _appStatusLabel(client, activeAppClientIds),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w700,
+    return Tooltip(
+      message: appStatusTooltip,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: foreground),
+              const SizedBox(width: 6),
+              Text(
+                _appStatusLabel(client, activeAppClientIds),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

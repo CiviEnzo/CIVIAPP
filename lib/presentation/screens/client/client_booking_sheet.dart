@@ -651,83 +651,103 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
             isSubmitting: _isSubmitting,
           );
 
-          final hideActions =
-              !navConfig.showBackButton && navConfig.onNext == null;
-          final footer =
-              hideActions ? null : _buildFloatingButtons(theme, navConfig);
+          final hasVisibleActions =
+              navConfig.showBackButton ||
+              navConfig.onNext != null ||
+              navConfig.isNextLoading;
+          final floatingActions = _buildFloatingButtons(theme, navConfig);
 
-          return DialogActionLayout(
-            footer: footer,
-            actions: const [],
-            showCloseButton: widget.showPageHeader,
-            body: SafeArea(
-              top: !widget.showCloseButton,
-              bottom: false,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.showCloseButton) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.edit_calendar_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _showSuccess
-                                  ? (_isEditingFlow
-                                      ? 'Modifica confermata'
-                                      : 'Prenotazione confermata')
-                                  : (_headerTitleOverride ?? 'Ripianifica'),
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            splashRadius: 20,
-                            icon: const Icon(Icons.close_rounded),
-                            tooltip: 'Chiudi',
-                            onPressed: () => Navigator.of(context).maybePop(),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    if (_showSuccess) ...[
-                      const SizedBox(height: 12),
-                    ] else ...[
-                      _buildBookingFlowIndicator(theme),
-                      const SizedBox(height: 16),
-                    ],
-                    Text(
-                      _headlineForCurrentStep(),
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.7),
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.2,
-                      ),
+          return Stack(
+            children: [
+              DialogActionLayout(
+                actions: const [],
+                showCloseButton: widget.showPageHeader,
+                body: SafeArea(
+                  top: !widget.showCloseButton,
+                  bottom: false,
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      4,
+                      4,
+                      4,
+                      hasVisibleActions ? 104 : 4,
                     ),
-                    const SizedBox(height: 24),
-                    if (showSelectionNavigator) ...[
-                      _buildSelectionNavigator(
-                        theme: theme,
-                        serviceById: serviceById,
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                    stepContent,
-                  ],
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (widget.showCloseButton) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.edit_calendar_rounded,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _showSuccess
+                                      ? (_isEditingFlow
+                                          ? 'Modifica confermata'
+                                          : 'Prenotazione confermata')
+                                      : (_headerTitleOverride ?? 'Ripianifica'),
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                visualDensity: VisualDensity.compact,
+                                splashRadius: 20,
+                                icon: const Icon(Icons.close_rounded),
+                                tooltip: 'Chiudi',
+                                onPressed:
+                                    () => Navigator.of(context).maybePop(),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        if (_showSuccess) ...[
+                          const SizedBox(height: 12),
+                        ] else ...[
+                          _buildBookingFlowIndicator(theme),
+                          const SizedBox(height: 16),
+                        ],
+                        Text(
+                          _headlineForCurrentStep(),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withOpacity(0.7),
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        if (showSelectionNavigator) ...[
+                          _buildSelectionNavigator(
+                            theme: theme,
+                            serviceById: serviceById,
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                        stepContent,
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  minimum: const EdgeInsets.only(bottom: 16),
+                  child: floatingActions,
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -928,20 +948,44 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
                 valueColor: AlwaysStoppedAnimation<Color>(nextForeground),
               ),
             )
-            : const Icon(Icons.arrow_forward_rounded);
+            : Icon(
+              _showSuccess
+                  ? Icons.add_rounded
+                  : _currentStep == _BookingStep.summary
+                  ? Icons.check_rounded
+                  : Icons.arrow_forward_rounded,
+            );
 
-    final nextFab = FloatingActionButton.extended(
+    final nextFab = FloatingActionButton(
+      key: const ValueKey('booking-next-fab'),
       heroTag: 'booking_next_fab',
+      tooltip: config.nextLabel,
       elevation: 2,
       backgroundColor: nextBackground,
       foregroundColor: nextForeground,
       onPressed: isNextInteractive ? config.onNext : null,
-      icon: nextIcon,
-      label: Text(config.nextLabel),
+      child: nextIcon,
+    );
+    final animatedNextFab = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 160),
+      reverseDuration: const Duration(milliseconds: 140),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder:
+          (child, animation) =>
+              FadeTransition(opacity: animation, child: child),
+      child:
+          hasNextAction || showNextSpinner
+              ? _BookingFabPulse(
+                key: const ValueKey('booking-next-fab-enabled'),
+                color: theme.colorScheme.primary,
+                child: nextFab,
+              )
+              : const SizedBox.shrink(key: ValueKey('booking-next-fab-hidden')),
     );
 
     if (!config.showBackButton) {
-      return SizedBox(width: double.infinity, child: nextFab);
+      return Align(alignment: Alignment.centerRight, child: animatedNextFab);
     }
 
     final backEnabled = config.onBack != null;
@@ -955,23 +999,17 @@ class _ClientBookingSheetState extends ConsumerState<ClientBookingSheet> {
     final backForeground =
         backEnabled ? enabledBackForeground : disabledBackForeground;
 
-    final backFab = FloatingActionButton.extended(
+    final backFab = FloatingActionButton(
       heroTag: 'booking_back_fab',
+      tooltip: config.backLabel,
       elevation: 0,
       backgroundColor: backBackground,
       foregroundColor: backForeground,
       onPressed: config.onBack,
-      icon: const Icon(Icons.arrow_back_rounded),
-      label: Text(config.backLabel),
+      child: const Icon(Icons.arrow_back_rounded),
     );
 
-    return Row(
-      children: [
-        Expanded(child: backFab),
-        const SizedBox(width: 16),
-        Expanded(child: nextFab),
-      ],
-    );
+    return Row(children: [backFab, const Spacer(), animatedNextFab]);
   }
 
   void _startAnotherBooking() {
@@ -3918,6 +3956,107 @@ class _BookingCategory {
   final int? colorValue;
 
   Color? get color => colorValue != null ? Color(colorValue!) : null;
+}
+
+class _BookingFabPulse extends StatefulWidget {
+  const _BookingFabPulse({super.key, required this.color, required this.child});
+
+  final Color color;
+  final Widget child;
+
+  @override
+  State<_BookingFabPulse> createState() => _BookingFabPulseState();
+}
+
+class _BookingFabPulseState extends State<_BookingFabPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _buttonScale;
+  late final Animation<double> _haloScale;
+  late final Animation<double> _haloOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 640),
+    );
+    _buttonScale = TweenSequence<double>([
+      TweenSequenceItem(tween: ConstantTween<double>(1), weight: 18),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 1,
+          end: 1.08,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 32,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 1.08,
+          end: 1,
+        ).chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 50,
+      ),
+    ]).animate(_controller);
+    _haloScale = Tween<double>(
+      begin: 0.82,
+      end: 1.65,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _haloOpacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween<double>(begin: 0, end: 0.32), weight: 28),
+      TweenSequenceItem(tween: Tween<double>(begin: 0.32, end: 0), weight: 72),
+    ]).animate(_controller);
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 56,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              IgnorePointer(
+                child: Opacity(
+                  opacity: _haloOpacity.value,
+                  child: Transform.scale(
+                    scale: _haloScale.value,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: widget.color.withValues(alpha: 0.22),
+                        boxShadow: [
+                          BoxShadow(
+                            color: widget.color.withValues(alpha: 0.28),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const SizedBox.square(dimension: 56),
+                    ),
+                  ),
+                ),
+              ),
+              Transform.scale(scale: _buttonScale.value, child: child),
+            ],
+          );
+        },
+        child: widget.child,
+      ),
+    );
+  }
 }
 
 class _DaySuggestion {

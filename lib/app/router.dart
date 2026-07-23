@@ -14,6 +14,8 @@ import 'package:you_book/presentation/screens/auth/sign_in_screen.dart';
 import 'package:you_book/presentation/screens/client/client_dashboard_screen.dart';
 import 'package:you_book/presentation/screens/client/client_salon_discovery_screen.dart';
 import 'package:you_book/presentation/screens/staff/staff_dashboard_screen.dart';
+import 'package:you_book/presentation/screens/public/web_client_registration_screen.dart';
+import 'package:you_book/presentation/screens/public/promotion_landing_screen.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,6 +60,43 @@ GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
         path: '/register-center',
         name: 'center_register',
         builder: (context, state) => const CenterRegistrationScreen(),
+      ),
+      GoRoute(
+        path: '/registrazione/:salonId',
+        name: 'web_client_registration',
+        builder:
+            (context, state) => WebClientRegistrationScreen(
+              salonId: state.pathParameters['salonId'] ?? '',
+              embedded: state.uri.queryParameters['embed'] == '1',
+            ),
+      ),
+      GoRoute(
+        path: '/embed/registrazione/:salonId',
+        name: 'embedded_web_client_registration',
+        builder:
+            (context, state) => WebClientRegistrationScreen(
+              salonId: state.pathParameters['salonId'] ?? '',
+              embedded: true,
+            ),
+      ),
+      GoRoute(
+        path: '/s/:salonSlug/promozioni/:promotionSlug',
+        name: 'public_promotion_landing',
+        builder:
+            (context, state) => PromotionLandingScreen(
+              salonSlug: state.pathParameters['salonSlug'] ?? '',
+              promotionSlug: state.pathParameters['promotionSlug'] ?? '',
+            ),
+      ),
+      GoRoute(
+        path: '/embed/s/:salonSlug/promozioni/:promotionSlug',
+        name: 'embedded_promotion_landing',
+        builder:
+            (context, state) => PromotionLandingScreen(
+              salonSlug: state.pathParameters['salonSlug'] ?? '',
+              promotionSlug: state.pathParameters['promotionSlug'] ?? '',
+              embedded: true,
+            ),
       ),
       GoRoute(
         path: '/password-reset',
@@ -120,6 +159,11 @@ GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
           state.matchedLocation == '/first-password-change';
       final deletingAccount = state.matchedLocation == '/eliminazione-account';
       final browsingClientSalons = state.matchedLocation == '/client';
+      final publicWebRegistration =
+          state.matchedLocation.startsWith('/registrazione/') ||
+          state.matchedLocation.startsWith('/embed/registrazione/') ||
+          state.matchedLocation.startsWith('/s/') ||
+          state.matchedLocation.startsWith('/embed/s/');
       final onboarding = state.matchedLocation == '/onboarding';
       final requiresProfile = session.requiresProfile;
       final requiresEmailVerification = session.requiresEmailVerification;
@@ -142,6 +186,10 @@ GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
         return null;
       }
 
+      if (publicWebRegistration) {
+        return null;
+      }
+
       if (isAdminDisabled) {
         unawaited(ref.read(authRepositoryProvider).signOut());
         if (loggingIn) {
@@ -160,7 +208,8 @@ GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
             registering ||
             registeringCenter ||
             resettingPassword ||
-            browsingClientSalons) {
+            browsingClientSalons ||
+            publicWebRegistration) {
           return null;
         }
         return Uri(
@@ -192,7 +241,7 @@ GoRouter createRouter(Ref ref, {FirebaseAnalytics? analytics}) {
       final destination = _pathForRole(session.role);
 
       if (changingPassword) {
-        return destination;
+        return canEnterClientDashboard ? '/client/dashboard' : destination;
       }
 
       if (loggingIn) {

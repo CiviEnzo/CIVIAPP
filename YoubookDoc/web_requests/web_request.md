@@ -11,6 +11,29 @@ un'anagrafica cliente.
 L'MVP riguarda esclusivamente la raccolta anagrafica. Non include prenotazioni,
 scelta di servizi, pagamenti o creazione automatica dell'account cliente.
 
+## Stato implementazione
+
+Prima implementazione completata sul branch `feature/web-client-requests`:
+
+- modello `WebClientRequest` e configurazione web per salone;
+- raccolta protetta `web_client_requests`;
+- invio anonimo tramite Cloud Function con validazione, honeypot, rate limit e
+  ricerca di possibili duplicati;
+- lavorazione autenticata e idempotente con creazione o collegamento cliente;
+- pagina pubblica `/registrazione/:salonId`, anche in modalità `?embed=1`;
+- generazione di link e codice iframe nelle impostazioni del salone;
+- tab **Arrivi dal web** con badge e azioni operative;
+- sincronizzazione della configurazione in `public_salons`;
+- test backend, dominio e interfaccia.
+
+Prima del rilascio in produzione restano attività infrastrutturali:
+
+- deploy di Functions, regole Firestore e applicazione web;
+- attivazione e verifica del modulo su un salone pilota;
+- configurazione CAPTCHA/App Check per rafforzare la protezione anti-bot;
+- validazione definitiva dei testi privacy e della politica di conservazione;
+- test dell'iframe sui CMS effettivamente usati dai saloni.
+
 ## Flusso utente
 
 1. Il salone configura e attiva il modulo dalle impostazioni YouBook.

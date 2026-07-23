@@ -31,6 +31,170 @@ const _merchantCountryCodeDefine = String.fromEnvironment(
 );
 const _stripeReturnUrl = 'youbook://stripe-redirect';
 
+String italianPaymentErrorMessage(Object error) {
+  if (error is StripeException) {
+    final details = error.error;
+    if (details.code == FailureCode.Canceled) {
+      return 'Pagamento annullato. Non è stato effettuato alcun addebito.';
+    }
+    if (details.code == FailureCode.Timeout) {
+      return 'Il pagamento ha impiegato troppo tempo. Controlla la connessione e riprova.';
+    }
+    return _italianPaymentMessageFromRaw(
+      [
+        details.stripeErrorCode,
+        details.declineCode,
+        details.type,
+        details.localizedMessage,
+        details.message,
+      ].whereType<String>().join(' '),
+    );
+  }
+
+  if (error is StripePaymentsException) {
+    if (error.code == 'canceled') {
+      return 'Pagamento annullato. Non è stato effettuato alcun addebito.';
+    }
+    return _italianPaymentMessageFromRaw(error.message);
+  }
+
+  final rawMessage =
+      error is StateError ? error.message.toString() : error.toString();
+  return _italianPaymentMessageFromRaw(rawMessage);
+}
+
+String _italianPaymentMessageFromRaw(String rawMessage) {
+  final normalized = rawMessage.trim().toLowerCase();
+
+  if (_containsAny(normalized, const [
+    'canceled',
+    'cancelled',
+    'annullato',
+    'annullata',
+  ])) {
+    return 'Pagamento annullato. Non è stato effettuato alcun addebito.';
+  }
+  if (_containsAny(normalized, const [
+    'insufficient_funds',
+    'insufficient funds',
+    'fondi insufficienti',
+  ])) {
+    return 'Fondi insufficienti. Usa un’altra carta o un altro metodo di pagamento.';
+  }
+  if (_containsAny(normalized, const [
+    'expired_card',
+    'card has expired',
+    'carta scaduta',
+  ])) {
+    return 'La carta è scaduta. Usa una carta valida e riprova.';
+  }
+  if (_containsAny(normalized, const [
+    'incorrect_cvc',
+    'invalid_cvc',
+    'security code is incorrect',
+    'cvc',
+    'codice di sicurezza',
+  ])) {
+    return 'Il codice di sicurezza della carta non è corretto. Controlla il CVC e riprova.';
+  }
+  if (_containsAny(normalized, const [
+    'incorrect_number',
+    'invalid_number',
+    'card number is incorrect',
+    'numero della carta',
+  ])) {
+    return 'Il numero della carta non è corretto. Controllalo e riprova.';
+  }
+  if (_containsAny(normalized, const [
+    'invalid_expiry',
+    'invalid_expiration',
+    'expiry month',
+    'expiry year',
+  ])) {
+    return 'La data di scadenza della carta non è valida. Controllala e riprova.';
+  }
+  if (_containsAny(normalized, const [
+    'authentication_required',
+    'authentication_failure',
+    'payment_intent_authentication_failure',
+    '3d secure',
+    '3ds',
+  ])) {
+    return 'La banca non ha autorizzato il pagamento. Completa la verifica richiesta oppure usa un’altra carta.';
+  }
+  if (_containsAny(normalized, const [
+    'card_declined',
+    'generic_decline',
+    'do_not_honor',
+    'declined',
+    'rifiutat',
+  ])) {
+    return 'La carta è stata rifiutata. Contatta la banca oppure usa un altro metodo di pagamento.';
+  }
+  if (_containsAny(normalized, const [
+    'network',
+    'socketexception',
+    'failed host lookup',
+    'connection',
+    'timeout',
+    'timed out',
+  ])) {
+    return 'Connessione assente o instabile. Controlla la rete e riprova il pagamento.';
+  }
+  if (_containsAny(normalized, const [
+    'utente non autenticato',
+    'token di autenticazione',
+    'unauthenticated',
+    'unauthorized',
+    '401',
+  ])) {
+    return 'La sessione è scaduta. Accedi di nuovo e riprova il pagamento.';
+  }
+  if (_containsAny(normalized, const [
+    'stripe non è configurato',
+    'stripe non disponibile',
+    'pagamento stripe non disponibile',
+    'publishable_key',
+    'not configured',
+  ])) {
+    return 'Il pagamento online non è disponibile in questo momento. Riprova più tardi o contatta il salone.';
+  }
+  if (_containsAny(normalized, const ['carrello è vuoto', 'carrello vuoto'])) {
+    return 'Il carrello è vuoto. Aggiungi almeno un elemento prima di pagare.';
+  }
+  if (_containsAny(normalized, const [
+    'totale del preventivo non è valido',
+    'totale non è valido',
+    'invalid amount',
+  ])) {
+    return 'L’importo da pagare non è valido. Contatta il salone prima di riprovare.';
+  }
+  if (_containsAny(normalized, const [
+    'processing_error',
+    'processing error',
+  ])) {
+    return 'Il pagamento non è stato completato. Attendi qualche istante e riprova.';
+  }
+  if (_containsAny(normalized, const [
+    'backend',
+    'server',
+    'internal',
+    'http',
+    'stripe 4',
+    'stripe 5',
+    'risposta non valida',
+    'endpoint',
+  ])) {
+    return 'Il servizio di pagamento è temporaneamente non disponibile. Riprova tra qualche minuto.';
+  }
+
+  return 'Pagamento non riuscito. Controlla i dati della carta oppure prova un altro metodo di pagamento.';
+}
+
+bool _containsAny(String value, List<String> patterns) {
+  return patterns.any(value.contains);
+}
+
 class StripeCheckoutResult {
   const StripeCheckoutResult({
     required this.paymentIntentId,
@@ -264,7 +428,9 @@ class StripePaymentsService {
     }
 
     throw StripePaymentsException.failed(
-      message: 'Errore Stripe ${response.statusCode}: ${response.body}',
+      message: italianPaymentErrorMessage(
+        'Errore Stripe ${response.statusCode}: ${response.body}',
+      ),
     );
   }
 
@@ -308,11 +474,11 @@ class StripePaymentsService {
       );
     } on StripeException catch (error) {
       throw StripePaymentsException.failed(
-        message: error.error.message ?? 'Configurazione pagamento non riuscita',
+        message: italianPaymentErrorMessage(error),
       );
     } catch (error) {
       throw StripePaymentsException.failed(
-        message: 'Configurazione pagamento non riuscita: $error',
+        message: italianPaymentErrorMessage(error),
       );
     }
   }
@@ -335,11 +501,11 @@ class StripePaymentsService {
     } on StripeException catch (error) {
       if (error.error.code == FailureCode.Canceled) {
         throw StripePaymentsException.canceled(
-          message: error.error.message ?? 'Pagamento annullato',
+          message: italianPaymentErrorMessage(error),
         );
       }
       throw StripePaymentsException.failed(
-        message: error.error.message ?? 'Pagamento non riuscito',
+        message: italianPaymentErrorMessage(error),
       );
     }
   }

@@ -158,7 +158,7 @@ class Salon {
     String? phone,
     String? email,
     String? postalCode,
-    String? bookingLink,
+    Object? bookingLink = _sentinel,
     String? googlePlaceId,
     double? latitude,
     double? longitude,
@@ -187,7 +187,10 @@ class Salon {
       phone: phone ?? this.phone,
       email: email ?? this.email,
       postalCode: postalCode ?? this.postalCode,
-      bookingLink: bookingLink ?? this.bookingLink,
+      bookingLink:
+          identical(bookingLink, _sentinel)
+              ? this.bookingLink
+              : bookingLink as String?,
       googlePlaceId: googlePlaceId ?? this.googlePlaceId,
 
       latitude: latitude ?? this.latitude,
@@ -229,10 +232,29 @@ class ClientRegistrationSettings {
   const ClientRegistrationSettings({
     this.accessMode = ClientRegistrationAccessMode.open,
     this.extraFields = const <ClientRegistrationExtraField>[],
+    this.webFormEnabled = false,
+    this.webFormTitle = 'Registrati al salone',
+    this.webFormDescription,
+    this.webFormConfirmationMessage =
+        'Grazie, i tuoi dati sono stati inviati al salone.',
+    this.privacyPolicyUrl,
+    this.privacyVersion = '1',
+    this.marketingConsentEnabled = true,
+    this.webThemeColor = '#6750A4',
+    this.webFontFamily = 'system',
   });
 
   final ClientRegistrationAccessMode accessMode;
   final List<ClientRegistrationExtraField> extraFields;
+  final bool webFormEnabled;
+  final String webFormTitle;
+  final String? webFormDescription;
+  final String webFormConfirmationMessage;
+  final String? privacyPolicyUrl;
+  final String privacyVersion;
+  final bool marketingConsentEnabled;
+  final String webThemeColor;
+  final String webFontFamily;
 
   bool get requiresApproval =>
       accessMode == ClientRegistrationAccessMode.approval;
@@ -240,10 +262,36 @@ class ClientRegistrationSettings {
   ClientRegistrationSettings copyWith({
     ClientRegistrationAccessMode? accessMode,
     List<ClientRegistrationExtraField>? extraFields,
+    bool? webFormEnabled,
+    String? webFormTitle,
+    Object? webFormDescription = _sentinel,
+    String? webFormConfirmationMessage,
+    Object? privacyPolicyUrl = _sentinel,
+    String? privacyVersion,
+    bool? marketingConsentEnabled,
+    String? webThemeColor,
+    String? webFontFamily,
   }) {
     return ClientRegistrationSettings(
       accessMode: accessMode ?? this.accessMode,
       extraFields: extraFields ?? this.extraFields,
+      webFormEnabled: webFormEnabled ?? this.webFormEnabled,
+      webFormTitle: webFormTitle ?? this.webFormTitle,
+      webFormDescription:
+          identical(webFormDescription, _sentinel)
+              ? this.webFormDescription
+              : webFormDescription as String?,
+      webFormConfirmationMessage:
+          webFormConfirmationMessage ?? this.webFormConfirmationMessage,
+      privacyPolicyUrl:
+          identical(privacyPolicyUrl, _sentinel)
+              ? this.privacyPolicyUrl
+              : privacyPolicyUrl as String?,
+      privacyVersion: privacyVersion ?? this.privacyVersion,
+      marketingConsentEnabled:
+          marketingConsentEnabled ?? this.marketingConsentEnabled,
+      webThemeColor: webThemeColor ?? this.webThemeColor,
+      webFontFamily: webFontFamily ?? this.webFontFamily,
     );
   }
 }

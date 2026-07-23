@@ -71,7 +71,10 @@ class _ClientSalonDiscoveryScreenState
     setState(() => _searchQuery = next);
   }
 
-  List<_DiscoverableSalonResult> _buildSalonResults(List<PublicSalon> salons) {
+  List<_DiscoverableSalonResult> _buildSalonResults(
+    List<PublicSalon> salons, {
+    Set<String> alwaysVisibleSalonIds = const <String>{},
+  }) {
     final rawQuery = _searchQuery.trim();
     final hasQuery = rawQuery.isNotEmpty;
     final query = rawQuery.toLowerCase();
@@ -80,7 +83,9 @@ class _ClientSalonDiscoveryScreenState
 
     final results = <_DiscoverableSalonResult>[];
     for (final salon in salons) {
-      if (!salon.isPublished || salon.status == SalonStatus.archived) {
+      final isAlwaysVisible = alwaysVisibleSalonIds.contains(salon.id);
+      if (!isAlwaysVisible &&
+          (!salon.isPublished || salon.status == SalonStatus.archived)) {
         continue;
       }
 
@@ -103,10 +108,10 @@ class _ClientSalonDiscoveryScreenState
           _normalizePhone(salon.phone).contains(phoneQuery);
 
       if (hasQuery) {
-        if (!matchesName && !matchesPhone) {
+        if (!isAlwaysVisible && !matchesName && !matchesPhone) {
           continue;
         }
-      } else if (!hasAddressAndCoordinates) {
+      } else if (!isAlwaysVisible && !hasAddressAndCoordinates) {
         continue;
       }
 
@@ -118,7 +123,9 @@ class _ClientSalonDiscoveryScreenState
           matchesPhone: matchesPhone,
           hasAddressAndCoordinates: hasAddressAndCoordinates,
           sortRank:
-              hasQuery
+              isAlwaysVisible
+                  ? -1
+                  : hasQuery
                   ? (matchesName ? nameRank : 4)
                   : (distanceMeters == null ? 1 : 0),
         ),
@@ -312,18 +319,6 @@ class _ClientSalonDiscoveryScreenState
     final requiresEmailVerification = session.requiresEmailVerification;
     final isGuest = user == null || requiresEmailVerification;
 
-    final discoverableSalons = data.discoverableSalons;
-    final fallbackSalons = data.salons
-        .where((salon) => salon.isPublished)
-        .map(PublicSalon.fromSalon)
-        .toList(growable: false);
-    final availableSalons =
-        discoverableSalons.isNotEmpty ? discoverableSalons : fallbackSalons;
-    final results = _buildSalonResults(availableSalons);
-    final hasAnyPublishedSalon = availableSalons.any(
-      (salon) => salon.isPublished && salon.status != SalonStatus.archived,
-    );
-
     final requests =
         userId == null
             ? const <SalonAccessRequest>[]
@@ -360,7 +355,39 @@ class _ClientSalonDiscoveryScreenState
       for (final entry in rawPendingBySalon.entries)
         if (!approvedSalonIds.contains(entry.key)) entry.key: entry.value,
     };
+
+    final discoverableSalons = data.discoverableSalons;
+    final fallbackSalons = data.salons
+        .where((salon) => salon.isPublished)
+        .map(PublicSalon.fromSalon)
+        .toList(growable: false);
+    final baseSalons =
+        discoverableSalons.isNotEmpty ? discoverableSalons : fallbackSalons;
+    final availableSalonsById = <String, PublicSalon>{
+      for (final salon in baseSalons) salon.id: salon,
+    };
+    for (final salon in data.salons) {
+      if (approvedSalonIds.contains(salon.id)) {
+        availableSalonsById.putIfAbsent(
+          salon.id,
+          () => PublicSalon.fromSalon(salon),
+        );
+      }
+    }
+    final availableSalons = availableSalonsById.values.toList(growable: false);
+    final results = _buildSalonResults(
+      availableSalons,
+      alwaysVisibleSalonIds: approvedSalonIds,
+    );
+    final hasAnyPublishedSalon = availableSalons.any(
+      (salon) => salon.isPublished && salon.status != SalonStatus.archived,
+    );
     final hasSalons = results.isNotEmpty;
+    final isManualSearch = _searchQuery.trim().isNotEmpty;
+    final showLocationBanner =
+        _locationStatus != _ClientLocationStatus.ready ||
+        isManualSearch ||
+        (_locationMessage?.trim().isNotEmpty ?? false);
 
     return Scaffold(
       appBar: AppBar(
@@ -406,13 +433,6 @@ class _ClientSalonDiscoveryScreenState
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                isGuest
-                    ? 'Cerca per nome o telefono.'
-                    : 'Mostriamo prima i saloni vicini a te. Cerca per nome o telefono.',
-                style: theme.textTheme.bodyMedium,
-              ),
               const SizedBox(height: 20),
               TextField(
                 controller: _searchController,
@@ -430,15 +450,17 @@ class _ClientSalonDiscoveryScreenState
                           ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _LocationDiscoveryBanner(
-                status: _locationStatus,
-                message: _locationMessage,
-                hasPosition: _devicePosition != null,
-                isManualSearch: _searchQuery.trim().isNotEmpty,
-                onUseLocation: _requestCurrentLocation,
-                onOpenSettings: _openLocationSettings,
-              ),
+              if (showLocationBanner) ...[
+                const SizedBox(height: 12),
+                _LocationDiscoveryBanner(
+                  status: _locationStatus,
+                  message: _locationMessage,
+                  hasPosition: _devicePosition != null,
+                  isManualSearch: isManualSearch,
+                  onUseLocation: _requestCurrentLocation,
+                  onOpenSettings: _openLocationSettings,
+                ),
+              ],
               const SizedBox(height: 16),
               if (!hasSalons)
                 Expanded(
@@ -502,16 +524,6 @@ class _ClientSalonDiscoveryScreenState
                       'Hai ${pendingBySalon.length} richiesta'
                       '${pendingBySalon.length == 1 ? '' : 'e'} in attesa di approvazione.',
                 ),
-              if (approvedSalonIds.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _StatusInfoBanner(
-                  icon: Icons.verified_rounded,
-                  color: theme.colorScheme.primary,
-                  message:
-                      'Accesso attivo per ${approvedSalonIds.length} salone'
-                      '${approvedSalonIds.length == 1 ? '' : 'i'}.',
-                ),
-              ],
             ],
           ),
         ),
@@ -2534,7 +2546,7 @@ class _LocationDiscoveryBanner extends StatelessWidget {
     }
     switch (status) {
       case _ClientLocationStatus.ready:
-        return 'Lista ordinata in base alla tua posizione.';
+        return '';
       case _ClientLocationStatus.loading:
         return 'Rilevamento posizione in corso...';
       case _ClientLocationStatus.idle:
